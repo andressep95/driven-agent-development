@@ -2006,47 +2006,7 @@ AGENT_EOF
         echo -e "  ${GREEN}✓${NC} scripts/bootstrap.sh"
     fi
 
-    # ── install-hooks.sh ─────────────────────────────────────────────
-    if [ ! -f "$dir/scripts/install-hooks.sh" ]; then
-        mkdir -p "$dir/scripts"
-        cat > "$dir/scripts/install-hooks.sh" << 'AGENT_EOF'
-#!/usr/bin/env bash
-# Installs git hooks from skills/ into .git/hooks/ via symlink.
-# Run once after cloning: bash .agent/scripts/install-hooks.sh
-set -euo pipefail
-
-# Hook mapping: hook name → source path
-HOOK_post_commit="skills/commit/assets/post-commit.sh"
-
-install_hook() {
-    local hook_name="$1"
-    local src="${2}"
-    local dst=".git/hooks/$hook_name"
-
-    if [ ! -f "$src" ]; then
-        echo "SKIP $hook_name — $src not found"
-        return
-    fi
-
-    if [ -f "$dst" ] && [ ! -L "$dst" ]; then
-        echo "BACKUP existing $dst → $dst.bak"
-        mv "$dst" "$dst.bak"
-    fi
-
-    ln -sf "../../$src" "$dst"
-    chmod +x "$src"
-    echo "OK   $dst → $src"
-}
-
-install_hook "post-commit" "$HOOK_post_commit"
-echo "Done. Hooks installed."
-AGENT_EOF
-        chmod +x "$dir/scripts/install-hooks.sh"
-        wrote=$((wrote + 1))
-        echo -e "  ${GREEN}✓${NC} scripts/install-hooks.sh"
-    fi
-
-    # ── post-commit.sh (legacy - to be removed) ─────────────────────
+    # ── post-commit.sh (deprecated - kept for reference) ───────────────────
     if [ ! -f "$dir/scripts/post-commit.sh" ]; then
         mkdir -p "$dir/scripts"
         cat > "$dir/scripts/post-commit.sh" << 'AGENT_EOF'
@@ -2427,8 +2387,19 @@ fi
 
 # ── Step 6: Install git hooks ────────────────────────────────────────────────
 echo -e "${CYAN}── Installing Git Hooks ────────────────────────────────────────────${NC}"
-if [ -f ".agent/scripts/install-hooks.sh" ]; then
-    bash .agent/scripts/install-hooks.sh
+
+# Install post-commit hook from skills/commit/assets/
+HOOK_SRC="skills/commit/assets/post-commit.sh"
+HOOK_DST=".git/hooks/post-commit"
+
+if [ -f "$HOOK_SRC" ]; then
+    if [ -f "$HOOK_DST" ] && [ ! -L "$HOOK_DST" ]; then
+        echo "BACKUP existing $HOOK_DST → $HOOK_DST.bak"
+        mv "$HOOK_DST" "$HOOK_DST.bak"
+    fi
+    ln -sf "../../$HOOK_SRC" "$HOOK_DST"
+    chmod +x "$HOOK_SRC"
+    echo "OK   $HOOK_DST → $HOOK_SRC"
 else
-    echo -e "${YELLOW}Hooks not found — skipping${NC}"
+    echo -e "${YELLOW}Hook not found at $HOOK_SRC — skipping${NC}"
 fi
