@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
 # Scans the Java source tree and emits raw symbol locations for agent processing.
-# Usage: bash .agent/scripts/scan.sh
+# Run from anywhere — script resolves the project root automatically.
 set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+cd "$ROOT"
 
 JAVA_ROOT="src/main/java"
 
 if [ ! -d "$JAVA_ROOT" ]; then
-    echo "ERROR: $JAVA_ROOT not found. Run from project root." >&2
+    echo "ERROR: $JAVA_ROOT not found in $ROOT" >&2
     exit 1
 fi
 
