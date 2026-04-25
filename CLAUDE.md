@@ -23,13 +23,14 @@ You are a **Skill-Driven Agent**. Logic improvisation is a system failure. Every
 | Skill | Description | File |
 |-------|-------------|------|
 | `changelog` | Manages CHANGELOG.md entries following keepachangelog.com format. Trigger: After committing a feat, fix, sec, perf, or refactor — or before creating a PR. | [SKILL.md](skills/changelog/SKILL.md) |
+| `clean-ddd-hexagonal` | Proactively apply when designing APIs, microservices, or scalable backend structure. Triggers on DDD, Clean Architecture, Hexagonal, ports and adapters, entities, value objects, domain events, CQRS, event sourcing, repository pattern, use cases, onion architecture, outbox pattern, aggregate root, anti-corruption layer. Use when working with domain models, aggregates, repositories, or bounded contexts. Clean Architecture + DDD + Hexagonal patterns for backend services, language-agnostic (Go, Rust, Python, TypeScript, Java, C#). | [SKILL.md](skills/clean-ddd-hexagonal/SKILL.md) |
 | `commit` | Enforces professional git commits using the Conventional Commits specification. Trigger: Before any git commit or when requested to commit changes. | [SKILL.md](skills/commit/SKILL.md) |
 | `endpoint-trace` | Generates code-level trace documents for each HTTP endpoint, mapping the full call chain from the controller inward through every component it touches (services, repositories, AWS clients, shared utilities). Output lives in docs/traces/ and is meant for developers navigating the codebase, not end users. Trigger: When documenting a new endpoint at the code level, auditing dependencies of an existing endpoint, or creating an endpoint-to-component map. | [SKILL.md](skills/endpoint-trace/SKILL.md) |
 | `feature-docs` | When a feature is marked as complete in api/openapi.yaml, generates a Markdown usage-flow document in docs/features/ explaining how to use it end-to-end. Trigger: After updating api/openapi.yaml with a completed endpoint. | [SKILL.md](skills/feature-docs/SKILL.md) |
 | `find-skills` | Helps users discover and install agent skills when they ask questions like "how do I do X", "find a skill for X", "is there a skill that can...", or express interest in extending capabilities. This skill should be used when the user is looking for functionality that might exist as an installable skill. | [SKILL.md](skills/find-skills/SKILL.md) |
 | `openapi` | Keeps api/openapi.yaml in sync with the Spring controllers in src/main/java. Trigger: After adding, modifying, or deleting any HTTP endpoint or changing a request/response schema. | [SKILL.md](skills/openapi/SKILL.md) |
 | `query-memory` | Searches agent memory by semantic similarity (ChromaDB) with automatic fallback to keyword search over memory.jsonl when Chroma is unavailable. Trigger: Search codebase symbols by intent or behavior rather than exact name. | [SKILL.md](skills/query-memory/SKILL.md) |
-| `scan-memory` | Scans the Java project and populates .agent/memory.jsonl with symbol locations, intent summaries, and tags. Ends by running rebuild.sh to produce a queryable memory.db. Trigger: First-time setup, memory.db missing or empty, after major refactors. | [SKILL.md](skills/scan-memory/SKILL.md) |
+| `scan-memory` | Scans the Java project and populates .agent/memory.jsonl with symbol locations, intent summaries, and tags. Syncs to ChromaDB for semantic search. Trigger: First-time setup, memory.jsonl missing or empty, after major refactors. | [SKILL.md](skills/scan-memory/SKILL.md) |
 | `skill-creator` | Creates new AI agent skills following the project skill spec. Trigger: When user asks to create a new skill, add agent instructions, or document patterns for AI reuse. | [SKILL.md](skills/skill-creator/SKILL.md) |
 | `skill-sync` | Keeps the Available Skills and Auto-Invoke Skills tables in sync with skill metadata after any skill is created or modified. Detects CLAUDE.md and .kiro/steering/project-rules.md by file existence and updates both. Trigger: After creating or modifying any SKILL.md file. | [SKILL.md](skills/skill-sync/SKILL.md) |
 
@@ -41,12 +42,14 @@ When performing these actions, ALWAYS load the corresponding skill FIRST:
 |--------|-------|
 | Adding a new endpoint | `openapi` |
 | Adding agent instructions | `skill-creator` |
+| Adding domain events or CQRS | `clean-ddd-hexagonal` |
 | After a major refactor affecting multiple files | `scan-memory` |
 | After committing a bug fix | `changelog` |
 | After committing a new feature | `changelog` |
 | After committing a security change | `changelog` |
 | After creating or modifying a skill | `skill-sync` |
 | After updating api/openapi.yaml with a completed endpoint | `feature-docs` |
+| Applying hexagonal architecture | `clean-ddd-hexagonal` |
 | Auto-invoke table is out of sync | `skill-sync` |
 | Before any git commit | `commit` |
 | Before creating a pull request | `changelog` |
@@ -55,14 +58,19 @@ When performing these actions, ALWAYS load the corresponding skill FIRST:
 | Changing request or response schema | `openapi` |
 | Creating a git commit | `commit` |
 | Creating a new skill | `skill-creator` |
+| Defining bounded contexts | `clean-ddd-hexagonal` |
 | Deleting an endpoint | `openapi` |
+| Designing a new microservice or API | `clean-ddd-hexagonal` |
 | Documenting a completed feature | `feature-docs` |
 | Documenting a pattern for AI reuse | `skill-creator` |
 | Feature is ready and needs usage documentation | `feature-docs` |
 | Find a skill for a task | `find-skills` |
 | Find symbols by description | `query-memory` |
 | First-time project setup | `scan-memory` |
+| Implementing repository pattern | `clean-ddd-hexagonal` |
+| Implementing use cases or application services | `clean-ddd-hexagonal` |
 | Install a new skill | `find-skills` |
+| Modeling domain entities or aggregates | `clean-ddd-hexagonal` |
 | Modifying a Spring controller | `openapi` |
 | Query ChromaDB for code symbols | `query-memory` |
 | Search codebase by intent or behavior | `query-memory` |

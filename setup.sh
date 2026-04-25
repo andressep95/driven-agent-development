@@ -1753,6 +1753,1694 @@ SYNCSH_EOF
         echo -e "  ${GREEN}✓${NC} skill-sync/assets/sync.sh"
     fi
 
+    # ── clean-ddd-hexagonal ───────────────────────────────────────────────
+    if [ ! -f "$dir/clean-ddd-hexagonal/SKILL.md" ]; then
+        mkdir -p "$dir/clean-ddd-hexagonal/references"
+        cat > "$dir/clean-ddd-hexagonal/SKILL.md" << 'DDD_SKILL_EOF'
+---
+name: clean-ddd-hexagonal
+description: Proactively apply when designing APIs, microservices, or scalable backend structure. Triggers on DDD, Clean Architecture, Hexagonal, ports and adapters, entities, value objects, domain events, CQRS, event sourcing, repository pattern, use cases, onion architecture, outbox pattern, aggregate root, anti-corruption layer. Use when working with domain models, aggregates, repositories, or bounded contexts. Clean Architecture + DDD + Hexagonal patterns for backend services, language-agnostic (Go, Rust, Python, TypeScript, Java, C#).
+metadata:
+  version: "1.0"
+  scope: [root]
+  auto_invoke:
+    - "Designing a new microservice or API"
+    - "Modeling domain entities or aggregates"
+    - "Implementing repository pattern"
+    - "Adding domain events or CQRS"
+    - "Applying hexagonal architecture"
+    - "Defining bounded contexts"
+    - "Implementing use cases or application services"
+allowed-tools: Read, Edit, Write, Bash
+---
+
+# Clean Architecture + DDD + Hexagonal
+
+Backend architecture combining DDD tactical patterns, Clean Architecture dependency rules, and Hexagonal ports/adapters for maintainable, testable systems.
+
+## When to Use (and When NOT to)
+
+| Use When | Skip When |
+|----------|-----------|
+| Complex business domain with many rules | Simple CRUD, few business rules |
+| Long-lived system (years of maintenance) | Prototype, MVP, throwaway code |
+| Team of 5+ developers | Solo developer or small team (1-2) |
+| Multiple entry points (API, CLI, events) | Single entry point, simple API |
+| Need to swap infrastructure (DB, broker) | Fixed infrastructure, unlikely to change |
+| High test coverage required | Quick scripts, internal tools |
+
+**Start simple. Evolve complexity only when needed.** Most systems don't need full CQRS or Event Sourcing.
+
+## CRITICAL: The Dependency Rule
+
+Dependencies point **inward only**. Outer layers depend on inner layers, never the reverse.
+
+```
+Infrastructure → Application → Domain
+   (adapters)     (use cases)    (core)
+```
+
+**Violations to catch:**
+- Domain importing database/HTTP libraries
+- Controllers calling repositories directly (bypassing use cases)
+- Entities depending on application services
+
+**Design validation:** "Create your application to work without either a UI or a database" — Alistair Cockburn. If you can run your domain logic from tests with no infrastructure, your boundaries are correct.
+
+## Quick Decision Trees
+
+### "Where does this code go?"
+
+```
+Where does it go?
+├─ Pure business logic, no I/O           → domain/
+├─ Orchestrates domain + has side effects → application/
+├─ Talks to external systems              → infrastructure/
+├─ Defines HOW to interact (interface)    → port (domain or application)
+└─ Implements a port                      → adapter (infrastructure)
+```
+
+### "Is this an Entity or Value Object?"
+
+```
+Entity or Value Object?
+├─ Has unique identity that persists → Entity
+├─ Defined only by its attributes    → Value Object
+├─ "Is this THE same thing?"         → Entity (identity comparison)
+└─ "Does this have the same value?"  → Value Object (structural equality)
+```
+
+### "Should this be its own Aggregate?"
+
+```
+Aggregate boundaries?
+├─ Must be consistent together in a transaction → Same aggregate
+├─ Can be eventually consistent                 → Separate aggregates
+├─ Referenced by ID only                        → Separate aggregates
+└─ >10 entities in aggregate                    → Split it
+```
+
+**Rule:** One aggregate per transaction. Cross-aggregate consistency via domain events (eventual consistency).
+
+## Directory Structure
+
+```
+src/
+├── domain/                    # Core business logic (NO external dependencies)
+│   ├── {aggregate}/
+│   │   ├── entity              # Aggregate root + child entities
+│   │   ├── value_objects       # Immutable value types
+│   │   ├── events              # Domain events
+│   │   ├── repository          # Repository interface (DRIVEN PORT)
+│   │   └── services            # Domain services (stateless logic)
+│   └── shared/
+│       └── errors              # Domain errors
+├── application/               # Use cases / Application services
+│   ├── {use-case}/
+│   │   ├── command             # Command/Query DTOs
+│   │   ├── handler             # Use case implementation
+│   │   └── port                # Driver port interface
+│   └── shared/
+│       └── unit_of_work        # Transaction abstraction
+├── infrastructure/            # Adapters (external concerns)
+│   ├── persistence/           # Database adapters
+│   ├── messaging/             # Message broker adapters
+│   ├── http/                  # REST/GraphQL adapters (DRIVER)
+│   └── config/
+│       └── di                  # Dependency injection / composition root
+└── main                        # Bootstrap / entry point
+```
+
+## DDD Building Blocks
+
+| Pattern | Purpose | Layer | Key Rule |
+|---------|---------|-------|----------|
+| **Entity** | Identity + behavior | Domain | Equality by ID |
+| **Value Object** | Immutable data | Domain | Equality by value, no setters |
+| **Aggregate** | Consistency boundary | Domain | Only root is referenced externally |
+| **Domain Event** | Record of change | Domain | Past tense naming (`OrderPlaced`) |
+| **Repository** | Persistence abstraction | Domain (port) | Per aggregate, not per table |
+| **Domain Service** | Stateless logic | Domain | When logic doesn't fit an entity |
+| **Application Service** | Orchestration | Application | Coordinates domain + infra |
+
+## Anti-Patterns (CRITICAL)
+
+| Anti-Pattern | Problem | Fix |
+|--------------|---------|-----|
+| **Anemic Domain Model** | Entities are data bags, logic in services | Move behavior INTO entities |
+| **Repository per Entity** | Breaks aggregate boundaries | One repository per AGGREGATE |
+| **Leaking Infrastructure** | Domain imports DB/HTTP libs | Domain has ZERO external deps |
+| **God Aggregate** | Too many entities, slow transactions | Split into smaller aggregates |
+| **Skipping Ports** | Controllers → Repositories directly | Always go through application layer |
+| **CRUD Thinking** | Modeling data, not behavior | Model business operations |
+| **Premature CQRS** | Adding complexity before needed | Start with simple read/write, evolve |
+| **Cross-Aggregate TX** | Multiple aggregates in one transaction | Use domain events for consistency |
+
+## Implementation Order
+
+1. **Discover the Domain** — Event Storming, conversations with domain experts
+2. **Model the Domain** — Entities, value objects, aggregates (no infra)
+3. **Define Ports** — Repository interfaces, external service interfaces
+4. **Implement Use Cases** — Application services coordinating domain
+5. **Add Adapters last** — HTTP, database, messaging implementations
+
+**DDD is collaborative.** Modeling sessions with domain experts are as important as the code patterns.
+
+## Reference Documentation
+
+| File | Purpose |
+|------|---------|
+| [references/LAYERS.md](references/LAYERS.md) | Complete layer specifications |
+| [references/DDD-STRATEGIC.md](references/DDD-STRATEGIC.md) | Bounded contexts, context mapping |
+| [references/DDD-TACTICAL.md](references/DDD-TACTICAL.md) | Entities, value objects, aggregates (pseudocode) |
+| [references/HEXAGONAL.md](references/HEXAGONAL.md) | Ports, adapters, naming |
+| [references/CQRS-EVENTS.md](references/CQRS-EVENTS.md) | Command/query separation, events |
+| [references/TESTING.md](references/TESTING.md) | Unit, integration, architecture tests |
+| [references/CHEATSHEET.md](references/CHEATSHEET.md) | Quick decision guide |
+
+## Sources
+
+### Primary Sources
+- [The Clean Architecture](https://blog.cleancoder.com/uncle-bob/2012/08/13/the-clean-architecture.html) — Robert C. Martin (2012)
+- [Hexagonal Architecture](https://alistair.cockburn.us/hexagonal-architecture/) — Alistair Cockburn (2005)
+- [Domain-Driven Design: The Blue Book](https://www.domainlanguage.com/ddd/blue-book/) — Eric Evans (2003)
+- [Implementing Domain-Driven Design](https://openlibrary.org/works/OL17392277W) — Vaughn Vernon (2013)
+
+### Pattern References
+- [CQRS](https://martinfowler.com/bliki/CQRS.html) — Martin Fowler
+- [Event Sourcing](https://martinfowler.com/eaaDev/EventSourcing.html) — Martin Fowler
+- [Repository Pattern](https://martinfowler.com/eaaCatalog/repository.html) — Martin Fowler (PoEAA)
+- [Unit of Work](https://martinfowler.com/eaaCatalog/unitOfWork.html) — Martin Fowler (PoEAA)
+- [Bounded Context](https://martinfowler.com/bliki/BoundedContext.html) — Martin Fowler
+- [Transactional Outbox](https://microservices.io/patterns/data/transactional-outbox.html) — microservices.io
+- [Effective Aggregate Design](https://www.dddcommunity.org/library/vernon_2011/) — Vaughn Vernon
+
+### Implementation Guides
+- [Microsoft: DDD + CQRS Microservices](https://learn.microsoft.com/en-us/dotnet/architecture/microservices/microservice-ddd-cqrs-patterns/)
+- [Domain Events](https://udidahan.com/2009/06/14/domain-events-salvation/) — Udi Dahan
+DDD_SKILL_EOF
+        wrote=$((wrote + 1))
+        echo -e "  ${GREEN}✓${NC} clean-ddd-hexagonal"
+
+        # ── references/LAYERS.md ──────────────────────────────────────
+        cat > "$dir/clean-ddd-hexagonal/references/LAYERS.md" << 'DDD_LAYERS_EOF'
+# Layer Structure - Complete Reference
+
+> Sources:
+> - [The Clean Architecture](https://blog.cleancoder.com/uncle-bob/2012/08/13/the-clean-architecture.html) — Robert C. Martin
+> - [Designing a DDD-oriented Microservice](https://learn.microsoft.com/en-us/dotnet/architecture/microservices/microservice-ddd-cqrs-patterns/ddd-oriented-microservice) — Microsoft
+> - [Clean Architecture: Standing on the Shoulders of Giants](https://herbertograca.com/2017/09/28/clean-architecture-standing-on-the-shoulders-of-giants/) — Herberto Graça
+
+## The Four Layers
+
+| Layer | Responsibility | Dependencies |
+|-------|---------------|--------------|
+| **Domain** | Business logic, entities, rules | None (pure) |
+| **Application** | Use cases, orchestration | Domain |
+| **Infrastructure** | External systems, frameworks | Application, Domain |
+| **Presentation** | API/UI entry points | Application |
+
+---
+
+## Domain Layer (Innermost)
+
+The **heart of the system**. Contains business logic and rules with **zero external dependencies**.
+
+### Contents
+
+```
+domain/
+├── order/                      # Aggregate folder
+│   ├── order.ts                # Aggregate root entity
+│   ├── order_item.ts           # Child entity
+│   ├── value_objects.ts        # Money, Address, OrderStatus
+│   ├── events.ts               # OrderPlaced, OrderShipped
+│   ├── repository.ts           # IOrderRepository interface
+│   ├── services.ts             # PricingService, DiscountService
+│   └── errors.ts               # InsufficientStockError
+├── customer/
+│   └── ...
+├── product/
+│   └── ...
+└── shared/
+    ├── entity.ts               # Base Entity class
+    ├── aggregate_root.ts       # Base AggregateRoot class
+    ├── value_object.ts         # Base ValueObject class
+    ├── domain_event.ts         # Base DomainEvent class
+    └── errors.ts               # DomainError base
+```
+
+### Rules
+
+1. **No framework imports** - No ORM decorators, no HTTP libraries
+2. **No infrastructure concerns** - No database, no message queues
+3. **Pure business logic** - Only language primitives and domain types
+4. **Rich behavior** - Methods that enforce business rules
+
+### Example: Domain Entity
+
+```typescript
+// domain/order/order.ts
+import { AggregateRoot } from '../shared/aggregate_root';
+import { OrderItem } from './order_item';
+import { Money } from './value_objects';
+import { OrderPlaced, OrderShipped } from './events';
+import { InsufficientStockError } from './errors';
+
+export class Order extends AggregateRoot<OrderId> {
+  private items: OrderItem[] = [];
+  private status: OrderStatus;
+
+  private constructor(id: OrderId, customerId: CustomerId) {
+    super(id);
+    this.customerId = customerId;
+    this.status = OrderStatus.Draft;
+  }
+
+  static create(id: OrderId, customerId: CustomerId): Order {
+    const order = new Order(id, customerId);
+    order.addDomainEvent(new OrderPlaced(id, customerId));
+    return order;
+  }
+
+  addItem(product: Product, quantity: number): void {
+    if (quantity <= 0) {
+      throw new InvalidQuantityError(quantity);
+    }
+    if (!product.hasStock(quantity)) {
+      throw new InsufficientStockError(product.id, quantity);
+    }
+
+    const existingItem = this.items.find(i => i.productId.equals(product.id));
+    if (existingItem) {
+      existingItem.increaseQuantity(quantity);
+    } else {
+      this.items.push(OrderItem.create(product.id, product.price, quantity));
+    }
+  }
+
+  ship(): void {
+    if (this.status !== OrderStatus.Confirmed) {
+      throw new InvalidOrderStateError('Cannot ship unconfirmed order');
+    }
+    this.status = OrderStatus.Shipped;
+    this.addDomainEvent(new OrderShipped(this.id));
+  }
+
+  get total(): Money {
+    return this.items.reduce(
+      (sum, item) => sum.add(item.subtotal),
+      Money.zero()
+    );
+  }
+}
+```
+
+---
+
+## Application Layer
+
+Orchestrates use cases by coordinating domain objects. Contains **application-specific business rules**.
+
+### Contents
+
+```
+application/
+├── orders/
+│   ├── place_order/
+│   │   ├── command.ts          # PlaceOrderCommand DTO
+│   │   ├── handler.ts          # PlaceOrderHandler
+│   │   └── port.ts             # IPlaceOrderUseCase interface
+│   ├── ship_order/
+│   │   └── ...
+│   └── get_order/
+│       ├── query.ts            # GetOrderQuery DTO
+│       ├── handler.ts          # GetOrderHandler
+│       └── result.ts           # OrderDTO response
+├── shared/
+│   ├── unit_of_work.ts         # IUnitOfWork interface
+│   ├── event_publisher.ts      # IEventPublisher interface
+│   └── errors.ts               # ApplicationError base
+└── index.ts                    # Public API exports
+```
+
+### Rules
+
+1. **Depends only on Domain** - No infrastructure imports
+2. **Defines ports** - Interfaces for repositories, external services
+3. **Orchestrates, doesn't implement** - Calls domain methods
+4. **Transaction boundary** - Manages unit of work
+
+### Example: Use Case Handler
+
+```typescript
+// application/orders/place_order/handler.ts
+import { Order } from '@/domain/order/order';
+import { IOrderRepository } from '@/domain/order/repository';
+import { IProductRepository } from '@/domain/product/repository';
+import { IUnitOfWork } from '@/application/shared/unit_of_work';
+import { IEventPublisher } from '@/application/shared/event_publisher';
+import { PlaceOrderCommand } from './command';
+import { OrderNotFoundError, ProductNotFoundError } from '@/application/shared/errors';
+
+export interface IPlaceOrderUseCase {
+  execute(command: PlaceOrderCommand): Promise<OrderId>;
+}
+
+export class PlaceOrderHandler implements IPlaceOrderUseCase {
+  constructor(
+    private readonly orderRepo: IOrderRepository,
+    private readonly productRepo: IProductRepository,
+    private readonly uow: IUnitOfWork,
+    private readonly eventPublisher: IEventPublisher,
+  ) {}
+
+  async execute(command: PlaceOrderCommand): Promise<OrderId> {
+    await this.uow.begin();
+
+    try {
+      const orderId = OrderId.generate();
+      const order = Order.create(orderId, command.customerId);
+
+      for (const item of command.items) {
+        const product = await this.productRepo.findById(item.productId);
+        if (!product) {
+          throw new ProductNotFoundError(item.productId);
+        }
+        order.addItem(product, item.quantity);
+      }
+
+      await this.orderRepo.save(order);
+      await this.uow.commit();
+      await this.eventPublisher.publishAll(order.domainEvents);
+
+      return orderId;
+    } catch (error) {
+      await this.uow.rollback();
+      throw error;
+    }
+  }
+}
+```
+
+---
+
+## Infrastructure Layer
+
+Implements interfaces defined in Domain and Application layers. Contains **all external concerns**.
+
+### Contents
+
+```
+infrastructure/
+├── persistence/
+│   ├── postgres/
+│   │   ├── order_repository.ts
+│   │   ├── product_repository.ts
+│   │   ├── unit_of_work.ts
+│   │   ├── migrations/
+│   │   └── mappers/
+│   │       └── order_mapper.ts
+│   └── in_memory/
+│       ├── order_repository.ts
+│       └── unit_of_work.ts
+├── messaging/
+│   ├── rabbitmq/
+│   │   └── event_publisher.ts
+│   └── in_memory/
+│       └── event_publisher.ts
+├── external/
+│   ├── payment/
+│   │   └── stripe_gateway.ts
+│   └── shipping/
+│       └── fedex_service.ts
+├── http/
+│   ├── rest/
+│   │   ├── controllers/
+│   │   │   └── order_controller.ts
+│   │   ├── middleware/
+│   │   └── routes.ts
+│   └── graphql/
+│       └── resolvers/
+├── grpc/
+│   └── order_service.ts
+└── config/
+    ├── container.ts
+    └── env.ts
+```
+
+### Rules
+
+1. **Implements ports** - Concrete classes for interfaces
+2. **Contains framework code** - ORM, HTTP frameworks, etc.
+3. **Maps between layers** - Domain <-> Database/DTO mapping
+4. **Easily replaceable** - Can swap Postgres for MongoDB
+
+---
+
+## Presentation Layer
+
+Entry points to the application. Adapts external requests to application commands/queries.
+
+### Example: REST Controller
+
+```typescript
+// presentation/rest/controllers/order_controller.ts
+import { Request, Response, NextFunction } from 'express';
+import { IPlaceOrderUseCase } from '@/application/orders/place_order/port';
+import { IGetOrderUseCase } from '@/application/orders/get_order/port';
+
+export class OrderController {
+  constructor(
+    private readonly placeOrder: IPlaceOrderUseCase,
+    private readonly getOrder: IGetOrderUseCase,
+  ) {}
+
+  async create(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const orderId = await this.placeOrder.execute({
+        customerId: req.user.id,
+        items: req.body.items.map((item: any) => ({
+          productId: item.product_id,
+          quantity: item.quantity,
+        })),
+      });
+      res.status(201).json({ id: orderId.value });
+    } catch (error) {
+      next(error);
+    }
+  }
+}
+```
+
+---
+
+## Dependency Rules Matrix
+
+|  | Domain | Application | Infrastructure |
+|--|--------|-------------|----------------|
+| **Domain** | ✅ | ❌ | ❌ |
+| **Application** | ✅ | ✅ | ❌ |
+| **Infrastructure** | ✅ | ✅ | ✅ |
+
+✅ = Can depend on  ❌ = Cannot depend on
+DDD_LAYERS_EOF
+        wrote=$((wrote + 1))
+        echo -e "  ${GREEN}✓${NC} clean-ddd-hexagonal/references/LAYERS.md"
+
+        # ── references/DDD-STRATEGIC.md ───────────────────────────────
+        cat > "$dir/clean-ddd-hexagonal/references/DDD-STRATEGIC.md" << 'DDD_STRAT_EOF'
+# DDD Strategic Patterns
+
+> Sources:
+> - [Domain-Driven Design: The Blue Book](https://www.domainlanguage.com/ddd/blue-book/) — Eric Evans (2003)
+> - [Bounded Context](https://martinfowler.com/bliki/BoundedContext.html) — Martin Fowler
+> - [Anti-Corruption Layer](https://docs.aws.amazon.com/prescriptive-guidance/latest/cloud-design-patterns/acl.html) — AWS
+
+## Overview
+
+Strategic DDD patterns help decompose large systems into manageable parts with clear boundaries. They answer: **"How do we divide a complex domain?"**
+
+**DDD is fundamentally collaborative.** The patterns below emerge from conversations, whiteboarding, and modeling sessions with domain experts.
+
+---
+
+## Domain Discovery Techniques
+
+### Event Storming
+
+```
+Orange sticky: Domain Event (past tense: "OrderPlaced")
+Blue sticky: Command (imperative: "Place Order")
+Yellow sticky: Aggregate (noun: "Order")
+Pink sticky: External System / Policy
+Purple sticky: Problem / Question
+```
+
+**Workshop flow:**
+1. **Chaotic exploration** — Everyone adds events they know about
+2. **Timeline ordering** — Arrange events chronologically
+3. **Identify aggregates** — Group related events
+4. **Find boundaries** — Where language changes = bounded context boundary
+5. **Surface problems** — Mark unclear areas for follow-up
+
+---
+
+## Ubiquitous Language
+
+A shared vocabulary between developers and domain experts that appears in code, documentation, conversations, and UI labels.
+
+### Principles
+
+1. **One language per bounded context**
+2. **Code reflects the language** - `Order.confirm()` not `Order.setStatus("confirmed")`
+3. **Evolve together** - When language changes, code changes
+
+```typescript
+// ❌ Technical, not ubiquitous
+class Order {
+  setStatus(status: number): void { this.status = status; }
+}
+
+// ✅ Ubiquitous language
+class Order {
+  confirm(): void {
+    if (this.status !== OrderStatus.Pending) {
+      throw new OrderCannotBeConfirmedException(this.id);
+    }
+    this.status = OrderStatus.Confirmed;
+    this.addDomainEvent(new OrderConfirmed(this.id));
+  }
+}
+```
+
+---
+
+## Bounded Contexts
+
+A **semantic boundary** where a particular domain model applies.
+
+- Each bounded context has its **own ubiquitous language**
+- Each bounded context has its **own model**
+- The same real-world concept may have **different representations** in different contexts
+
+### Example: "Customer" means different things
+
+- **Sales**: Email, preferences, order history
+- **Shipping**: Delivery address, phone number
+- **Billing**: Payment methods, billing address
+
+---
+
+## Subdomains
+
+| Type | Description | Investment | Example |
+|------|-------------|------------|---------|
+| **Core** | Competitive advantage | High | Product recommendation engine |
+| **Supporting** | Necessary but not unique | Medium | Order management |
+| **Generic** | Commodity, buy/outsource | Low | Email sending, payments |
+
+---
+
+## Context Mapping Patterns
+
+### Anti-Corruption Layer (ACL)
+
+Translation layer protecting your model from external models.
+
+```
+External Context → ACL (Translator + Adapter) → Your Context
+```
+
+**Use when:** integrating with legacy systems, third-party APIs, or messy external models.
+
+```typescript
+export class StripePaymentACL {
+  translateStatus(stripeStatus: string): PaymentStatus {
+    const mapping: Record<string, PaymentStatus> = {
+      'requires_payment_method': PaymentStatus.Pending,
+      'processing': PaymentStatus.Processing,
+      'succeeded': PaymentStatus.Completed,
+      'canceled': PaymentStatus.Cancelled,
+    };
+    return mapping[stripeStatus] ?? PaymentStatus.Unknown;
+  }
+}
+```
+
+### Other Patterns
+
+| Pattern | When to Use |
+|---------|-------------|
+| **Partnership** | Two contexts succeed or fail together |
+| **Shared Kernel** | Two contexts share a subset of the model (use sparingly) |
+| **Customer-Supplier** | Upstream provides what downstream needs |
+| **Conformist** | Downstream adopts upstream's model with no negotiation |
+| **Open Host Service** | Expose a well-defined protocol for multiple consumers |
+
+---
+
+## Strategic Design Checklist
+
+- [ ] Identify ubiquitous language terms with domain experts
+- [ ] Map subdomains (core, supporting, generic)
+- [ ] Define bounded context boundaries
+- [ ] Document context map with relationships
+- [ ] Design anti-corruption layers for external systems
+- [ ] Define integration event schemas
+- [ ] Ensure each context has its own data store
+DDD_STRAT_EOF
+        wrote=$((wrote + 1))
+        echo -e "  ${GREEN}✓${NC} clean-ddd-hexagonal/references/DDD-STRATEGIC.md"
+
+        # ── references/DDD-TACTICAL.md ────────────────────────────────
+        cat > "$dir/clean-ddd-hexagonal/references/DDD-TACTICAL.md" << 'DDD_TACT_EOF'
+# DDD Tactical Patterns
+
+> Sources:
+> - [Domain-Driven Design: The Blue Book](https://www.domainlanguage.com/ddd/blue-book/) — Eric Evans (2003)
+> - [Implementing Domain-Driven Design](https://openlibrary.org/works/OL17392277W) — Vaughn Vernon (2013)
+> - [Effective Aggregate Design](https://www.dddcommunity.org/library/vernon_2011/) — Vaughn Vernon
+
+## Entity
+
+An object with **identity** that persists through time.
+
+```
+abstract class Entity<ID>:
+    id: ID
+    equals(other: Entity<ID>) -> bool:
+        return this.id == other.id
+
+class OrderItem extends Entity<OrderItemId>:
+    productId: ProductId
+    quantity: Quantity
+    unitPrice: Money
+
+    static create(productId, quantity, unitPrice) -> OrderItem:
+        return new OrderItem(id: OrderItemId.generate(), ...)
+
+    increaseQuantity(amount: int):
+        this.quantity = this.quantity.add(amount)
+
+    subtotal() -> Money:
+        return this.unitPrice.multiply(this.quantity.value)
+```
+
+---
+
+## Value Object
+
+An object defined by its **attributes**, not identity. Immutable, no setters, equality by value.
+
+### Common Value Objects
+
+| Value Object | Attributes | Validation |
+|--------------|-----------|------------|
+| Money | amount, currency | amount >= 0 |
+| Email | address | valid email format |
+| Address | street, city, zip, country | required fields |
+| Quantity | value | value > 0 |
+
+```
+class Money extends ValueObject<{amount, currency}>:
+    static create(amount, currency) -> Money:
+        guard: amount >= 0
+        return new Money({amount, currency})
+
+    add(other: Money) -> Money:
+        guard: this.currency == other.currency
+        return Money.create(this.amount + other.amount, this.currency)
+
+class Email extends ValueObject<{value}>:
+    static create(email: string) -> Email:
+        normalized = email.lowercase().trim()
+        guard: isValidEmailFormat(normalized)
+        return new Email({value: normalized})
+```
+
+---
+
+## Aggregate
+
+A cluster of entities and value objects with a **consistency boundary**.
+
+### Rules
+
+1. **One aggregate root** - Single entry point for all modifications
+2. **Reference by ID only** - Aggregates reference others by identity only
+3. **Transaction boundary** - One aggregate per transaction
+4. **Small aggregates** - Prefer smaller over larger
+
+### Aggregate Sizing Heuristics
+
+| Metric | Healthy | Warning | Action |
+|--------|---------|---------|--------|
+| Entities per aggregate | 1-5 | 6-10 | >10: Split |
+| Lines of code (root) | <500 | 500-1000 | >1000: Split |
+| Transaction lock time | <100ms | 100-500ms | >500ms: Split |
+
+```
+class Order extends AggregateRoot<OrderId>:
+    customerId: CustomerId
+    items: List<OrderItem> = []
+    status: OrderStatus
+
+    static create(customerId: CustomerId) -> Order:
+        order = new Order(id: OrderId.generate(), ...)
+        order.addDomainEvent(OrderCreated{orderId, customerId})
+        return order
+
+    addItem(productId, quantity, unitPrice):
+        guard: status != CANCELLED
+        guard: quantity > 0
+        existingItem = this.items.find(i => i.productId == productId)
+        if existingItem:
+            existingItem.increaseQuantity(quantity)
+        else:
+            this.items.append(OrderItem.create(productId, quantity, unitPrice))
+        this.addDomainEvent(OrderItemAdded{orderId, productId, quantity})
+
+    confirm():
+        guard: status == DRAFT
+        guard: items.length > 0
+        this.status = CONFIRMED
+        this.addDomainEvent(OrderConfirmed{orderId, total})
+
+    cancel(reason: string):
+        guard: status not in [SHIPPED, DELIVERED]
+        this.status = CANCELLED
+        this.addDomainEvent(OrderCancelled{orderId, reason})
+```
+
+---
+
+## Repository
+
+One repository per aggregate. Domain interface, infrastructure implementation.
+
+```
+interface OrderRepository:
+    findById(id: OrderId) -> Order | null
+    findByCustomerId(customerId: CustomerId) -> List<Order>
+    save(order: Order)
+    delete(order: Order)
+
+# Wrong: repository per entity
+interface OrderItemRepository:  # ❌
+    findByOrderId(orderId) -> List<OrderItem>
+
+# Wrong: query methods in repository
+interface OrderRepository:  # ❌
+    findByStatus(status) -> List<Order>
+    countByCustomer(customerId)
+
+# Correct: separate read model for queries
+interface OrderReadModel:  # ✅
+    findByStatus(status) -> List<OrderSummaryDTO>
+    countByCustomer(customerId) -> int
+```
+
+---
+
+## Domain Event
+
+Records something significant that happened. Past tense naming, immutable.
+
+```
+abstract class DomainEvent:
+    eventId: string = generateUUID()
+    occurredAt: DateTime = now()
+    abstract eventType: string
+
+class OrderCreated extends DomainEvent:
+    eventType = "order.created"
+    orderId: OrderId
+    customerId: CustomerId
+
+class OrderConfirmed extends DomainEvent:
+    eventType = "order.confirmed"
+    orderId: OrderId
+    total: Money
+```
+
+---
+
+## Domain Service
+
+Stateless operations that don't naturally fit within an entity.
+
+**When to use:** operation involves multiple aggregates, or significant business logic that doesn't belong to one entity.
+
+```
+interface PricingService:
+    calculateDiscount(order: Order, customer: Customer) -> Money
+
+class PricingServiceImpl implements PricingService:
+    calculateDiscount(order, customer) -> Money:
+        discount = Money.zero()
+        if order.itemCount() > 10:
+            discount = discount.add(order.total().multiply(0.05))
+        if customer.isVIP:
+            discount = discount.add(order.total().multiply(0.10))
+        maxDiscount = order.total().multiply(0.20)
+        return min(discount, maxDiscount)
+```
+
+---
+
+## Specification Pattern
+
+Encapsulates business rules for querying or validation.
+
+```
+class OrderOverValueSpec implements Specification<Order>:
+    minValue: Money
+    isSatisfiedBy(order) -> bool:
+        return order.total().amount >= minValue.amount
+
+canShipFree = OrderOverValueSpec(Money.create(100, "USD"))
+    .and(OrderHasItemsSpec())
+
+if canShipFree.isSatisfiedBy(order):
+    applyFreeShipping()
+```
+DDD_TACT_EOF
+        wrote=$((wrote + 1))
+        echo -e "  ${GREEN}✓${NC} clean-ddd-hexagonal/references/DDD-TACTICAL.md"
+
+        # ── references/HEXAGONAL.md ───────────────────────────────────
+        cat > "$dir/clean-ddd-hexagonal/references/HEXAGONAL.md" << 'DDD_HEX_EOF'
+# Hexagonal Architecture (Ports & Adapters)
+
+> Sources:
+> - [Hexagonal Architecture](https://alistair.cockburn.us/hexagonal-architecture/) — Alistair Cockburn (2005)
+> - [Hexagonal Architecture Pattern](https://docs.aws.amazon.com/prescriptive-guidance/latest/cloud-design-patterns/hexagonal-architecture.html) — AWS
+
+## Core Concept
+
+> "Allow an application to equally be driven by users, programs, automated tests, or batch scripts, and to be developed and tested in isolation from its eventual run-time devices and databases." — Alistair Cockburn
+
+**The hexagon is conceptual.** Most applications have 2-4 ports. The shape emphasizes that all external interactions go through ports, regardless of direction.
+
+---
+
+## Ports
+
+### Driver Ports (Primary / Inbound)
+
+Define **how the world uses your application**. Entry points, represent use cases.
+
+```typescript
+export interface IPlaceOrderPort {
+  execute(command: PlaceOrderCommand): Promise<OrderId>;
+}
+
+export interface IGetOrderPort {
+  execute(query: GetOrderQuery): Promise<OrderDTO | null>;
+}
+```
+
+### Driven Ports (Secondary / Outbound)
+
+Define **how your application uses external systems**. Application defines, adapters implement.
+
+```typescript
+export interface IOrderRepositoryPort {
+  findById(id: OrderId): Promise<Order | null>;
+  save(order: Order): Promise<void>;
+  delete(order: Order): Promise<void>;
+}
+
+export interface IEventPublisherPort {
+  publish(event: DomainEvent): Promise<void>;
+  publishAll(events: DomainEvent[]): Promise<void>;
+}
+
+export interface IPaymentGatewayPort {
+  charge(amount: Money, paymentMethod: PaymentMethod): Promise<PaymentResult>;
+  refund(paymentId: PaymentId, amount: Money): Promise<RefundResult>;
+}
+```
+
+---
+
+## Adapters
+
+### Driver Adapters (Primary / Inbound)
+
+Convert external inputs to port calls.
+
+```typescript
+export class OrderController {
+  constructor(
+    private readonly placeOrder: IPlaceOrderPort,
+    private readonly getOrder: IGetOrderPort,
+  ) {}
+
+  async create(req: Request, res: Response): Promise<void> {
+    const orderId = await this.placeOrder.execute({
+      customerId: req.user.id,
+      items: req.body.items.map((item: any) => ({
+        productId: item.product_id,
+        quantity: item.quantity,
+      })),
+    });
+    res.status(201).json({ id: orderId.value });
+  }
+}
+```
+
+### Driven Adapters (Secondary / Outbound)
+
+```
+class PostgresOrderRepository implements IOrderRepositoryPort:
+    findById(id: OrderId) -> Order | null:
+        row = db.orders.where(id: id.value).first()
+        if not row: return null
+        return OrderMapper.toDomain(row)
+
+    save(order: Order):
+        data = OrderMapper.toPersistence(order)
+        db.orders.upsert(data)
+
+class InMemoryOrderRepository implements IOrderRepositoryPort:
+    orders: Map<string, Order> = {}
+    findById(id: OrderId) -> Order | null:
+        return orders.get(id.value) or null
+    save(order: Order):
+        orders.set(order.id.value, order)
+```
+
+---
+
+## Naming Conventions
+
+### Alistair Cockburn's Recommended Pattern
+
+**Ports:** `For[Doing][Something]`
+- Driver: `ForPlacingOrders`, `ForConfiguringSettings`
+- Driven: `ForStoringUsers`, `ForNotifyingAlerts`
+
+### Alternative Patterns
+
+| Pattern | Port | Adapter |
+|---------|------|---------|
+| Interface/Impl | `IOrderRepository` | `PostgresOrderRepository` |
+| Port suffix | `OrderRepositoryPort` | `PostgresOrderAdapter` |
+
+---
+
+## Key Asymmetry
+
+- **Driver side:** Application defines what it OFFERS (use case interfaces)
+- **Driven side:** Application defines what it NEEDS (infrastructure interfaces)
+
+---
+
+## Strong vs Weak Hexagonal
+
+```typescript
+// ❌ Weak: Leaks SQL concepts
+interface IOrderRepository {
+  findByQuery(sql: string, params: any[]): Promise<Order[]>;
+}
+
+// ✅ Strong: Pure domain concepts
+interface IOrderRepository {
+  findById(id: OrderId): Promise<Order | null>;
+  findByCustomer(customerId: CustomerId): Promise<Order[]>;
+  save(order: Order): Promise<void>;
+}
+```
+
+---
+
+## Configurability via Adapters
+
+```typescript
+function configureProduction(container: Container): void {
+  container.bind<IOrderRepositoryPort>('IOrderRepositoryPort').to(PostgresOrderRepository);
+  container.bind<IEventPublisherPort>('IEventPublisherPort').to(RabbitMQEventPublisher);
+  container.bind<IPaymentGatewayPort>('IPaymentGatewayPort').to(StripePaymentGateway);
+}
+
+function configureTest(container: Container): void {
+  container.bind<IOrderRepositoryPort>('IOrderRepositoryPort').to(InMemoryOrderRepository);
+  container.bind<IEventPublisherPort>('IEventPublisherPort').to(SpyEventPublisher);
+  container.bind<IPaymentGatewayPort>('IPaymentGatewayPort').to(MockPaymentGateway);
+}
+```
+
+---
+
+## Benefits
+
+1. **Testability** - Swap real adapters for test doubles
+2. **Flexibility** - Change technologies without changing core
+3. **Independence** - Develop core without external systems
+4. **Clear boundaries** - Explicit interfaces between layers
+5. **Parallel development** - Teams work on different adapters
+DDD_HEX_EOF
+        wrote=$((wrote + 1))
+        echo -e "  ${GREEN}✓${NC} clean-ddd-hexagonal/references/HEXAGONAL.md"
+
+        # ── references/CQRS-EVENTS.md ─────────────────────────────────
+        cat > "$dir/clean-ddd-hexagonal/references/CQRS-EVENTS.md" << 'DDD_CQRS_EOF'
+# CQRS & Domain Events
+
+> Sources:
+> - [CQRS](https://martinfowler.com/bliki/CQRS.html) — Martin Fowler
+> - [Event Sourcing](https://martinfowler.com/eaaDev/EventSourcing.html) — Martin Fowler
+> - [Transactional Outbox](https://microservices.io/patterns/data/transactional-outbox.html) — microservices.io
+> - [Domain Events – Salvation](https://udidahan.com/2009/06/14/domain-events-salvation/) — Udi Dahan
+
+## CQRS Overview
+
+**Command Query Responsibility Segregation** separates read and write operations into different models.
+
+```
+API Layer
+├── Commands → Command Handler → Domain Model → Write DB
+└── Queries  → Query Handler  → Read DB (optimized)
+
+Write DB --[Domain Events]--> Event Handler --> Updates Read DB
+```
+
+---
+
+## Commands vs Queries
+
+### Commands (Write Side) — mutate data
+
+```typescript
+export interface PlaceOrderCommand {
+  type: 'PlaceOrder';
+  customerId: string;
+  items: Array<{ productId: string; quantity: number }>;
+}
+
+export class PlaceOrderHandler {
+  async handle(command: PlaceOrderCommand): Promise<OrderId> {
+    const order = Order.create(CustomerId.from(command.customerId));
+    for (const item of command.items) {
+      const product = await this.productRepo.findById(item.productId);
+      order.addItem(product.id, item.quantity, product.price);
+    }
+    await this.orderRepo.save(order);
+    await this.eventPublisher.publishAll(order.domainEvents);
+    return order.id;
+  }
+}
+```
+
+### Queries (Read Side) — never mutate state
+
+```typescript
+export class GetOrderHandler {
+  constructor(private readonly readDb: IOrderReadModel) {}
+
+  async handle(query: GetOrderQuery): Promise<OrderDTO | null> {
+    return this.readDb.findById(query.orderId);
+  }
+}
+```
+
+---
+
+## Domain Events
+
+### Event Structure
+
+```typescript
+export abstract class DomainEvent {
+  readonly eventId: string;
+  readonly occurredAt: Date;
+  readonly aggregateId: string;
+  abstract readonly eventType: string;
+
+  constructor(aggregateId: string) {
+    this.eventId = crypto.randomUUID();
+    this.occurredAt = new Date();
+    this.aggregateId = aggregateId;
+  }
+
+  abstract toPayload(): Record<string, unknown>;
+}
+
+export class OrderConfirmed extends DomainEvent {
+  readonly eventType = 'order.confirmed';
+
+  constructor(
+    readonly orderId: OrderId,
+    readonly total: Money,
+    readonly items: ReadonlyArray<{ productId: string; quantity: number }>,
+  ) {
+    super(orderId.value);
+  }
+
+  toPayload() {
+    return {
+      orderId: this.orderId.value,
+      total: { amount: this.total.amount, currency: this.total.currency },
+      items: this.items,
+    };
+  }
+}
+```
+
+---
+
+## Domain Events vs Integration Events
+
+### Domain Events
+- Stay within bounded context
+- Fine-grained, named in domain language
+- Trigger internal processes
+
+### Integration Events
+- Cross bounded context boundaries
+- Coarser-grained, versioned schema
+- Published to message broker
+
+```typescript
+interface OrderConfirmedIntegrationEvent {
+  eventType: 'sales.order.confirmed';
+  eventId: string;
+  version: '1.0';
+  occurredAt: string;
+  payload: {
+    orderId: string;
+    customerId: string;
+    total: { amount: number; currency: string };
+  };
+}
+```
+
+---
+
+## Event Dispatcher Pattern
+
+```typescript
+export class EventDispatcher {
+  private handlers: Map<string, IEventHandler<any>[]> = new Map();
+
+  register<T extends DomainEvent>(eventType: string, handler: IEventHandler<T>): void {
+    const existing = this.handlers.get(eventType) ?? [];
+    existing.push(handler);
+    this.handlers.set(eventType, existing);
+  }
+
+  async dispatch(event: DomainEvent): Promise<void> {
+    const handlers = this.handlers.get(event.eventType) ?? [];
+    await Promise.all(handlers.map(h => h.handle(event)));
+  }
+}
+```
+
+---
+
+## Outbox Pattern
+
+Ensures events are published reliably (exactly-once semantics).
+
+```
+class PlaceOrderHandler:
+    handle(command) -> OrderId:
+        order = Order.create(...)
+        db.transaction((tx) => {
+            orderRepo.save(order, tx)
+            for event in order.domainEvents:
+                outbox.save(event, tx)     # atomic with the write
+        })
+        return order.id
+
+class OutboxProcessor:
+    process():
+        messages = outbox.getUnprocessed()
+        for message in messages:
+            messageBroker.publish(message.eventType, message.payload)
+            outbox.markProcessed(message.id)
+```
+
+---
+
+## Idempotent Consumer Pattern
+
+**Required for reliable event processing.** Messages may be delivered more than once.
+
+```
+class OrderConfirmedHandler:
+    processedIds: Set<string>
+
+    handle(event: OrderConfirmed):
+        if event.eventId in processedIds:
+            return
+        doWork(event)
+        processedIds.add(event.eventId)
+```
+
+---
+
+## When to Use CQRS
+
+> **Warning:** "You should be very cautious about using CQRS... the majority of cases I've run into have not been so good." — Martin Fowler
+
+### Use When:
+- Read and write workloads have dramatically different scaling requirements
+- Event sourcing is used (CQRS pairs naturally with ES)
+- You've proven simpler approaches are insufficient
+
+### Skip When:
+- Simple CRUD application (most applications)
+- Small team, simple domain
+- Adding it "just in case"
+
+**CQRS applies to specific bounded contexts, never entire systems.**
+
+### Start Simple
+
+```typescript
+class OrderService {
+  async placeOrder(cmd: PlaceOrderCommand): Promise<OrderId> {
+    const order = Order.create(...);
+    await this.orderRepo.save(order);
+    return order.id;
+  }
+
+  async getOrder(id: string): Promise<OrderDTO | null> {
+    return this.readModel.findById(id);
+  }
+}
+```
+
+Evolve to separate databases only when needed.
+DDD_CQRS_EOF
+        wrote=$((wrote + 1))
+        echo -e "  ${GREEN}✓${NC} clean-ddd-hexagonal/references/CQRS-EVENTS.md"
+
+        # ── references/TESTING.md ─────────────────────────────────────
+        cat > "$dir/clean-ddd-hexagonal/references/TESTING.md" << 'DDD_TEST_EOF'
+# Testing Patterns
+
+> Sources:
+> - [Unit Testing](https://martinfowler.com/bliki/UnitTest.html) — Martin Fowler
+> - [Test Pyramid](https://martinfowler.com/bliki/TestPyramid.html) — Martin Fowler
+
+Testing strategies for Clean Architecture + DDD + Hexagonal systems.
+
+## Testing Pyramid
+
+```
+E2E Tests            — Few, slow, expensive
+Integration Tests    — Some, moderate speed
+Unit Tests           — Many, fast, cheap (domain + application)
+```
+
+---
+
+## Unit Tests
+
+### Domain Layer Tests — no mocks needed
+
+```typescript
+describe('Order', () => {
+  it('creates order with draft status', () => {
+    const order = Order.create(CustomerId.from('cust-123'));
+    expect(order.status).toBe(OrderStatus.Draft);
+    expect(order.items).toHaveLength(0);
+  });
+
+  it('emits OrderCreated event', () => {
+    const order = Order.create(CustomerId.from('cust-123'));
+    expect(order.domainEvents[0]).toBeInstanceOf(OrderCreated);
+  });
+
+  it('throws when adding item to cancelled order', () => {
+    const order = createCancelledOrder();
+    expect(() => {
+      order.addItem(ProductId.from('prod-123'), Quantity.create(1), Money.create(10, 'USD'));
+    }).toThrow(InvalidOrderStateError);
+  });
+
+  it('calculates total from all items', () => {
+    const order = createDraftOrder();
+    order.addItem(ProductId.from('p1'), Quantity.create(2), Money.create(10, 'USD'));
+    order.addItem(ProductId.from('p2'), Quantity.create(1), Money.create(25, 'USD'));
+    expect(order.total.amount).toBe(45);
+  });
+});
+```
+
+### Application Layer Tests — mock at port boundaries
+
+```typescript
+describe('PlaceOrderHandler', () => {
+  let handler: PlaceOrderHandler;
+  let orderRepo: MockOrderRepository;
+  let eventPublisher: MockEventPublisher;
+
+  beforeEach(() => {
+    orderRepo = new MockOrderRepository();
+    eventPublisher = new MockEventPublisher();
+    handler = new PlaceOrderHandler(orderRepo, eventPublisher);
+  });
+
+  it('creates order and saves', async () => {
+    const command = { customerId: 'cust-123', items: [{ productId: 'p1', quantity: 2 }] };
+    const orderId = await handler.handle(command);
+    const saved = await orderRepo.findById(OrderId.from(orderId));
+    expect(saved).not.toBeNull();
+  });
+
+  it('publishes domain events', async () => {
+    await handler.handle({ customerId: 'cust-123', items: [{ productId: 'p1', quantity: 1 }] });
+    expect(eventPublisher.publishedEvents[0]).toBeInstanceOf(OrderCreated);
+  });
+});
+
+class MockOrderRepository implements IOrderRepository {
+  savedOrders: Order[] = [];
+  async findById(id: OrderId): Promise<Order | null> {
+    return this.savedOrders.find(o => o.id.equals(id)) ?? null;
+  }
+  async save(order: Order): Promise<void> {
+    this.savedOrders.push(order);
+  }
+  async delete(order: Order): Promise<void> {
+    const index = this.savedOrders.findIndex(o => o.id.equals(order.id));
+    if (index >= 0) this.savedOrders.splice(index, 1);
+  }
+}
+```
+
+---
+
+## Integration Tests — use real infrastructure
+
+```typescript
+describe('PostgresOrderRepository', () => {
+  let repository: PostgresOrderRepository;
+
+  beforeEach(async () => {
+    await pool.query('TRUNCATE orders, order_items CASCADE');
+  });
+
+  it('persists and retrieves order', async () => {
+    const order = Order.create(CustomerId.from('cust-123'));
+    order.addItem(ProductId.from('prod-1'), Quantity.create(2), Money.create(10, 'USD'));
+    await repository.save(order);
+    const retrieved = await repository.findById(order.id);
+    expect(retrieved!.items).toHaveLength(1);
+  });
+});
+```
+
+---
+
+## Architecture Tests — verify dependency rules
+
+```typescript
+describe('Architecture', () => {
+  it('domain should not depend on infrastructure', async () => {
+    const rule = filesOfProject()
+      .inFolder('domain')
+      .shouldNot()
+      .dependOnFiles()
+      .inFolder('infrastructure');
+    await expect(rule).toPassAsync();
+  });
+
+  it('application should not depend on infrastructure', async () => {
+    const rule = filesOfProject()
+      .inFolder('application')
+      .shouldNot()
+      .dependOnFiles()
+      .inFolder('infrastructure');
+    await expect(rule).toPassAsync();
+  });
+});
+```
+
+---
+
+## Test Organization
+
+```
+tests/
+├── unit/
+│   ├── domain/
+│   └── application/
+├── integration/
+│   ├── persistence/
+│   ├── messaging/
+│   └── http/
+├── e2e/
+├── architecture/
+├── fixtures/
+└── helpers/
+```
+
+---
+
+## Key Testing Principles
+
+1. **Test behavior, not implementation** - Focus on what, not how
+2. **Domain tests need no mocks** - Domain layer is pure
+3. **Mock at port boundaries** - Application tests mock driven ports
+4. **Integration tests use real infra** - Test actual database, message broker
+5. **Test business rules in domain** - Not in application or infrastructure
+DDD_TEST_EOF
+        wrote=$((wrote + 1))
+        echo -e "  ${GREEN}✓${NC} clean-ddd-hexagonal/references/TESTING.md"
+
+        # ── references/CHEATSHEET.md ──────────────────────────────────
+        cat > "$dir/clean-ddd-hexagonal/references/CHEATSHEET.md" << 'DDD_CHEAT_EOF'
+# Quick Reference Cheatsheet
+
+> See [SKILL.md](../SKILL.md#sources) for full source list.
+
+## Layer Summary
+
+```
+INFRASTRUCTURE (Adapters)
+  REST/gRPC controllers, CLI handlers, Database repositories,
+  Message publishers, External service clients
+
+APPLICATION (Use Cases)
+  Command/Query handlers, DTOs, Transaction management,
+  Port interfaces, Application services, Event dispatching
+
+DOMAIN (Business Logic)
+  Entities, Aggregates, Repository interfaces, Business rules,
+  Value Objects, Domain Events, Domain Services, Specifications
+```
+
+*Dependencies point inward: Infrastructure → Application → Domain*
+
+---
+
+## Quick Decision Trees
+
+### "Where does this code go?"
+
+```
+Is it a business rule or constraint?
+├── YES → Domain layer
+└── NO ↓
+
+Is it orchestrating a use case?
+├── YES → Application layer
+└── NO ↓
+
+Is it dealing with external systems (DB, API, UI)?
+├── YES → Infrastructure layer
+└── NO → Reconsider; probably domain
+```
+
+### "Entity or Value Object?"
+
+```
+Does it have a unique identity that persists?
+├── YES → Entity
+└── NO ↓
+
+Is it defined entirely by its attributes?
+├── YES → Value Object
+└── NO → Probably an Entity
+```
+
+### "Aggregate boundary?"
+
+```
+Must these objects change together atomically?
+├── YES → Same aggregate
+└── NO ↓
+
+Can one exist without the other?
+├── YES → Different aggregates (reference by ID)
+└── NO → Probably same aggregate
+```
+
+### "Domain Service or Entity method?"
+
+```
+Does it naturally belong to one entity?
+├── YES → Entity method
+└── NO ↓
+
+Does it require multiple aggregates?
+├── YES → Domain Service
+└── NO ↓
+
+Is it stateless business logic?
+├── YES → Domain Service
+└── NO → Reconsider placement
+```
+
+---
+
+## Common Patterns Quick Reference
+
+### Value Object Template
+
+```typescript
+export class Money {
+  private constructor(
+    private readonly _amount: number,
+    private readonly _currency: string,
+  ) {}
+
+  static create(amount: number, currency: string): Money {
+    if (amount < 0) throw new Error('Negative');
+    return new Money(amount, currency);
+  }
+
+  add(other: Money): Money {
+    return Money.create(this._amount + other._amount, this._currency);
+  }
+
+  equals(other: Money): boolean {
+    return this._amount === other._amount && this._currency === other._currency;
+  }
+}
+```
+
+### Aggregate Root Template
+
+```typescript
+export class Order extends AggregateRoot<OrderId> {
+  private _items: OrderItem[] = [];
+  private _status: OrderStatus;
+
+  private constructor(id: OrderId, customerId: CustomerId) {
+    super(id);
+    this._customerId = customerId;
+    this._status = OrderStatus.Draft;
+  }
+
+  static create(customerId: CustomerId): Order {
+    const order = new Order(OrderId.generate(), customerId);
+    order.addDomainEvent(new OrderCreated(order.id, customerId));
+    return order;
+  }
+
+  addItem(productId: ProductId, quantity: Quantity, price: Money): void {
+    this.assertCanModify();
+    this._items.push(OrderItem.create(productId, quantity, price));
+  }
+
+  confirm(): void {
+    this.assertCanModify();
+    if (this._items.length === 0) throw new EmptyOrderError();
+    this._status = OrderStatus.Confirmed;
+    this.addDomainEvent(new OrderConfirmed(this.id, this.total));
+  }
+
+  private assertCanModify(): void {
+    if (this._status === OrderStatus.Cancelled) {
+      throw new InvalidOrderStateError('Order is cancelled');
+    }
+  }
+}
+```
+
+### Use Case Handler Template
+
+```typescript
+export class PlaceOrderHandler {
+  constructor(
+    private readonly orderRepo: IOrderRepository,
+    private readonly productRepo: IProductRepository,
+    private readonly eventPublisher: IEventPublisher,
+  ) {}
+
+  async execute(command: PlaceOrderCommand): Promise<OrderId> {
+    const order = Order.create(CustomerId.from(command.customerId));
+    for (const item of command.items) {
+      const product = await this.productRepo.findById(item.productId);
+      order.addItem(product.id, Quantity.create(item.quantity), product.price);
+    }
+    await this.orderRepo.save(order);
+    await this.eventPublisher.publishAll(order.domainEvents);
+    return order.id;
+  }
+}
+```
+
+---
+
+## Port Naming Conventions
+
+| Type | Pattern | Examples |
+|------|---------|----------|
+| Driver Port | `I{Action}UseCase` | `IPlaceOrderUseCase`, `IGetOrderUseCase` |
+| Driven Port | `I{Resource}Repository` | `IOrderRepository`, `IProductRepository` |
+| Driven Port | `I{Action}Service` | `IPaymentService`, `INotificationService` |
+| Driven Port | `I{Resource}Gateway` | `IPaymentGateway`, `IShippingGateway` |
+
+---
+
+## Common Anti-Patterns
+
+| Anti-Pattern | Problem | Solution |
+|--------------|---------|----------|
+| Anemic Domain | Entities are just data bags | Put behavior in entities |
+| Repository per table | One repo per DB table | One repo per aggregate |
+| Fat Use Cases | Business logic in handlers | Move to domain |
+| Leaky Abstraction | Domain depends on ORM | Keep domain pure |
+| God Aggregate | One massive aggregate | Split into smaller ones |
+| Cross-Aggregate TX | Modifying multiple in one TX | Use domain events |
+| Direct Layer Skip | Controller → Repository | Go through application layer |
+| Premature CQRS | Adding complexity early | Start simple, evolve |
+
+---
+
+## Dependency Rules Matrix
+
+|  | Domain | Application | Infrastructure |
+|--|--------|-------------|----------------|
+| **Domain** | ✅ | ❌ | ❌ |
+| **Application** | ✅ | ✅ | ❌ |
+| **Infrastructure** | ✅ | ✅ | ✅ |
+
+---
+
+## Complexity Ladder (Start Simple)
+
+```
+Level 1: Simple layered (Controller → Service → Repository)
+   ↓ When business rules grow complex
+Level 2: Domain model (Entities with behavior)
+   ↓ When need multiple entry points
+Level 3: Hexagonal (Ports & Adapters)
+   ↓ When read/write patterns diverge significantly
+Level 4: CQRS (Separate read/write models)
+   ↓ When need complete audit trail / temporal queries
+Level 5: Event Sourcing (Store events, derive state)
+```
+
+**Don't skip levels.** Each level adds complexity. Move up only when you've proven the current level insufficient.
+
+---
+
+## Resources
+
+### Books
+- Clean Architecture (Robert C. Martin, 2017)
+- Domain-Driven Design (Eric Evans, 2003)
+- Implementing Domain-Driven Design (Vaughn Vernon, 2013)
+- Hexagonal Architecture Explained (Alistair Cockburn, 2024)
+
+### Reference Implementations
+- Go: [bxcodec/go-clean-arch](https://github.com/bxcodec/go-clean-arch)
+- TypeScript: [jbuget/nodejs-clean-architecture-app](https://github.com/jbuget/nodejs-clean-architecture-app)
+- Java: [thombergs/buckpal](https://github.com/thombergs/buckpal)
+DDD_CHEAT_EOF
+        wrote=$((wrote + 1))
+        echo -e "  ${GREEN}✓${NC} clean-ddd-hexagonal/references/CHEATSHEET.md"
+    fi
+
     if [ $wrote -eq 0 ]; then
         echo -e "  ${CYAN}–${NC} All bundled skills already exist"
     else
