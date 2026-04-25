@@ -53,13 +53,7 @@ Generate:
 {"type":"symbol","file":"path/to/File.java","symbol":"ClassName","kind":"controller","lines":[14,120],"intent":"one sentence","tags":["controller","account"],"commit":"GIT_HASH","ts":"YYYY-MM-DD"}
 ```
 
-### Step 4 — Rebuild the DB
-
-```bash
-bash .agent/scripts/rebuild.sh
-```
-
-### Step 5 — Sync to Chroma (optional)
+### Step 4 — Sync to Chroma (optional)
 
 If ChromaDB is running, push memory to the vector search index:
 
@@ -71,13 +65,10 @@ python3 .agent/scripts/sync-to-chroma.py --url "${CHROMA_URL:-http://localhost:8
 
 Skip this step if ChromaDB is not available — SQLite FTS remains fully functional.
 
-### Step 6 — Verify
+### Step 5 — Verify
 
 ```bash
-sqlite3 .agent/memory.db \
-  "SELECT c.file_path, c.line_start, c.line_end, c.intent
-   FROM code_search s JOIN codebase_index c ON s.rowid = c.id
-   WHERE code_search MATCH 'account' ORDER BY rank LIMIT 5;"
+python3 .agent/scripts/query-memory.py "account" --type symbol --no-chroma
 ```
 
 ---
@@ -85,17 +76,20 @@ sqlite3 .agent/memory.db \
 ## How the Agent Uses Memory
 
 ```bash
-sqlite3 .agent/memory.db \
-  "SELECT c.file_path, c.line_start, c.line_end, c.intent
-   FROM code_search s JOIN codebase_index c ON s.rowid = c.id
-   WHERE code_search MATCH 'KEYWORDS' ORDER BY rank LIMIT 10;"
-```
+# Semantic search (requires Chroma)
+python3 .agent/scripts/query-memory.py "KEYWORDS"
 
-Then: `sed -n 'LINE_START,LINE_ENDp' FILE_PATH`
+# Keyword fallback (always available)
+python3 .agent/scripts/query-memory.py "KEYWORDS" --no-chroma
+
+# Filter by type
+python3 .agent/scripts/query-memory.py "KEYWORDS" --type symbol   # Java code
+python3 .agent/scripts/query-memory.py "KEYWORDS" --type change   # git history
+```
 
 ---
 
 ## Git Rules
 
-- `memory.db` → `.gitignore` (rebuilt locally)
-- `memory.jsonl` → committed (portable source of truth)
+- `memory.jsonl` → committed (portable source of truth, append-only history)
+- No SQLite DB — persistence is JSONL + Chroma only
