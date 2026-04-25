@@ -472,9 +472,53 @@ type(scope): description
 EOF
 )"
 ```
+
+## Git Hook
+
+```bash
+# The post-commit hook is installed at:
+# .git/hooks/post-commit → skills/commit/assets/post-commit.sh
+```
+
 SKILL_EOF
         wrote=$((wrote + 1))
         echo -e "  ${GREEN}✓${NC} commit"
+
+        # ── commit/assets/post-commit.sh ──────────────────────────────
+        mkdir -p "$dir/commit/assets"
+        if [ ! -f "$dir/commit/assets/post-commit.sh" ]; then
+            cat > "$dir/commit/assets/post-commit.sh" << 'AGENT_EOF'
+#!/usr/bin/env bash
+# Git post-commit hook: syncs memory.jsonl with changed Java files to Chroma.
+set -uo pipefail
+
+AGENT_DIR=".agent"
+JSONL="$AGENT_DIR/memory.jsonl"
+CHROMA_URL="${CHROMA_URL:-http://localhost:8000}"
+
+[ -f "$JSONL" ] || exit 0
+! git rev-parse HEAD~1 >/dev/null 2>&1 && exit 0
+
+ADDED=$(git diff --name-only --diff-filter=A HEAD~1 HEAD 2>/dev/null | grep '\.java$' || true)
+DELETED=$(git diff --name-only --diff-filter=D HEAD~1 HEAD 2>/dev/null | grep '\.java$' || true)
+MODIFIED=$(git diff --name-only --diff-filter=M HEAD~1 HEAD 2>/dev/null | grep '\.java$' || true)
+
+[ -z "$ADDED$DELETED$MODIFIED" ] && exit 0
+
+echo "[memory] Java files changed — syncing to Chroma..."
+
+python3 "$AGENT_DIR/scripts/sync-memory.py" \
+    --jsonl  "$JSONL" \
+    --added    "$ADDED" \
+    --deleted  "$DELETED" \
+    --modified "$MODIFIED"
+
+python3 "$AGENT_DIR/scripts/sync-to-chroma.py" --url "$CHROMA_URL" 2>&1 | tail -1
+AGENT_EOF
+            chmod +x "$dir/commit/assets/post-commit.sh"
+            wrote=$((wrote + 1))
+            echo -e "  ${GREEN}✓${NC} commit/assets/post-commit.sh"
+        fi
     fi
 
     # ── endpoint-trace ────────────────────────────────────────────────
@@ -1995,19 +2039,21 @@ AGENT_EOF
         mkdir -p "$dir/scripts"
         cat > "$dir/scripts/install-hooks.sh" << 'AGENT_EOF'
 #!/usr/bin/env bash
-# Installs .agent git hooks into .git/hooks/ via symlink.
+# Installs git hooks from skills/ into .git/hooks/ via symlink.
 # Run once after cloning: bash .agent/scripts/install-hooks.sh
 set -euo pipefail
 
-HOOKS=(post-commit)
+# Hook mapping: hook name → source path
+HOOK_post_commit="skills/commit/assets/post-commit.sh"
 
-for hook in "${HOOKS[@]}"; do
-    src=".agent/scripts/$hook.sh"
-    dst=".git/hooks/$hook"
+install_hook() {
+    local hook_name="$1"
+    local src="${2}"
+    local dst=".git/hooks/$hook_name"
 
     if [ ! -f "$src" ]; then
-        echo "SKIP $hook — $src not found"
-        continue
+        echo "SKIP $hook_name — $src not found"
+        return
     fi
 
     if [ -f "$dst" ] && [ ! -L "$dst" ]; then
@@ -2015,11 +2061,12 @@ for hook in "${HOOKS[@]}"; do
         mv "$dst" "$dst.bak"
     fi
 
-    ln -sf "../../.agent/scripts/$hook.sh" "$dst"
+    ln -sf "../../$src" "$dst"
     chmod +x "$src"
     echo "OK   $dst → $src"
-done
+}
 
+install_hook "post-commit" "$HOOK_post_commit"
 echo "Done. Hooks installed."
 AGENT_EOF
         chmod +x "$dir/scripts/install-hooks.sh"
@@ -2027,26 +2074,21 @@ AGENT_EOF
         echo -e "  ${GREEN}✓${NC} scripts/install-hooks.sh"
     fi
 
-    # ── post-commit.sh ───────────────────────────────────────────────
+    # ── post-commit.sh (legacy - to be removed) ─────────────────────
     if [ ! -f "$dir/scripts/post-commit.sh" ]; then
         mkdir -p "$dir/scripts"
         cat > "$dir/scripts/post-commit.sh" << 'AGENT_EOF'
 #!/usr/bin/env bash
-# Git post-commit hook: syncs memory.jsonl with changed Java files to Chroma.
-# Installed via: bash .agent/scripts/install-hooks.sh
+# DEPRECATED: Use skills/commit/assets/post-commit.sh instead
+# This file is kept for backwards compatibility.
 set -uo pipefail
 
 AGENT_DIR=".agent"
 JSONL="$AGENT_DIR/memory.jsonl"
 CHROMA_URL="${CHROMA_URL:-http://localhost:8000}"
 
-# Skip if memory not initialised yet
 [ -f "$JSONL" ] || exit 0
-
-# Detect first commit (no parent)
-if ! git rev-parse HEAD~1 >/dev/null 2>&1; then
-    exit 0
-fi
+! git rev-parse HEAD~1 >/dev/null 2>&1 && exit 0
 
 ADDED=$(git diff --name-only --diff-filter=A HEAD~1 HEAD 2>/dev/null | grep '\.java$' || true)
 DELETED=$(git diff --name-only --diff-filter=D HEAD~1 HEAD 2>/dev/null | grep '\.java$' || true)
@@ -2066,7 +2108,7 @@ python3 "$AGENT_DIR/scripts/sync-to-chroma.py" --url "$CHROMA_URL" 2>&1 | tail -
 AGENT_EOF
         chmod +x "$dir/scripts/post-commit.sh"
         wrote=$((wrote + 1))
-        echo -e "  ${GREEN}✓${NC} scripts/post-commit.sh"
+        echo -e "  ${GREEN}✓${NC} scripts/post-commit.sh (deprecated)"
     fi
 
     # ── sync-memory.py ───────────────────────────────────────────────
@@ -2409,4 +2451,12 @@ if [ -f "$SYNC_SH" ]; then
 else
     echo -e "${YELLOW}skill-sync not found at $SYNC_SH — skipping table sync${NC}"
     echo "  Run: bash skills/skill-sync/assets/sync.sh"
+fi
+
+# ── Step 6: Install git hooks ────────────────────────────────────────────────
+echo -e "${CYAN}── Installing Git Hooks ────────────────────────────────────────────${NC}"
+if [ -f ".agent/scripts/install-hooks.sh" ]; then
+    bash .agent/scripts/install-hooks.sh
+else
+    echo -e "${YELLOW}Hooks not found — skipping${NC}"
 fi
