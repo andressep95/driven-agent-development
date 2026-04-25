@@ -477,9 +477,10 @@ SKILL_EOF
         if [ ! -f "$dir/commit/assets/post-commit.sh" ]; then
             cat > "$dir/commit/assets/post-commit.sh" << 'AGENT_EOF'
 #!/usr/bin/env bash
-# Git post-commit hook: syncs memory.jsonl for all tracked file types.
-# Java files  → sync-memory.py  (line-level diff precision)
-# Other files → sync-files.py   (.md, .sh, .py, .yaml, .yml, .sql, .json)
+# Git post-commit hook — two passes:
+#   1. sync-hunks.py  : hunk-level change records for ALL tracked file types
+#   2. sync-memory.py : Java symbol location updates (line shifts after edits)
+# Both write to memory.jsonl; sync-to-chroma.py pushes everything to Chroma.
 set -uo pipefail
 
 AGENT_DIR=".agent"
@@ -489,43 +490,43 @@ CHROMA_URL="${CHROMA_URL:-http://localhost:8000}"
 [ -f "$JSONL" ] || exit 0
 ! git rev-parse HEAD~1 >/dev/null 2>&1 && exit 0
 
-# Java files
-JAVA_ADDED=$(git diff --name-only --diff-filter=A HEAD~1 HEAD 2>/dev/null | grep '\.java$' || true)
-JAVA_DELETED=$(git diff --name-only --diff-filter=D HEAD~1 HEAD 2>/dev/null | grep '\.java$' || true)
-JAVA_MODIFIED=$(git diff --name-only --diff-filter=M HEAD~1 HEAD 2>/dev/null | grep '\.java$' || true)
-
-# Non-Java tracked files
-OTHER_ADDED=$(git diff --name-only --diff-filter=A HEAD~1 HEAD 2>/dev/null \
-    | grep -E '\.(md|sh|py|yaml|yml|sql|json)$' \
+# All tracked file types for hunk tracking
+ALL_ADDED=$(git diff --name-only --diff-filter=A HEAD~1 HEAD 2>/dev/null \
+    | grep -E '\.(java|md|sh|py|yaml|yml|sql|json)$' \
     | grep -v 'memory\.jsonl\|memory\.db' || true)
-OTHER_DELETED=$(git diff --name-only --diff-filter=D HEAD~1 HEAD 2>/dev/null \
-    | grep -E '\.(md|sh|py|yaml|yml|sql|json)$' \
+ALL_DELETED=$(git diff --name-only --diff-filter=D HEAD~1 HEAD 2>/dev/null \
+    | grep -E '\.(java|md|sh|py|yaml|yml|sql|json)$' \
     | grep -v 'memory\.jsonl\|memory\.db' || true)
-OTHER_MODIFIED=$(git diff --name-only --diff-filter=M HEAD~1 HEAD 2>/dev/null \
-    | grep -E '\.(md|sh|py|yaml|yml|sql|json)$' \
+ALL_MODIFIED=$(git diff --name-only --diff-filter=M HEAD~1 HEAD 2>/dev/null \
+    | grep -E '\.(java|md|sh|py|yaml|yml|sql|json)$' \
     | grep -v 'memory\.jsonl\|memory\.db' || true)
 
+# Java-only for symbol location tracking
+JAVA_ADDED=$(echo "$ALL_ADDED"    | grep '\.java$' || true)
+JAVA_DELETED=$(echo "$ALL_DELETED"  | grep '\.java$' || true)
+JAVA_MODIFIED=$(echo "$ALL_MODIFIED" | grep '\.java$' || true)
+
+HAS_ANY=$([ -n "$ALL_ADDED$ALL_DELETED$ALL_MODIFIED" ] && echo 1 || true)
 HAS_JAVA=$([ -n "$JAVA_ADDED$JAVA_DELETED$JAVA_MODIFIED" ] && echo 1 || true)
-HAS_OTHER=$([ -n "$OTHER_ADDED$OTHER_DELETED$OTHER_MODIFIED" ] && echo 1 || true)
 
-[ -z "${HAS_JAVA}${HAS_OTHER}" ] && exit 0
+[ -z "${HAS_ANY}" ] && exit 0
 
-echo "[memory] Files changed — syncing..."
+echo "[memory] Syncing changes..."
 
+# Pass 1 — hunk records for all file types
+python3 "$AGENT_DIR/scripts/sync-hunks.py" \
+    --jsonl    "$JSONL" \
+    --added    "$ALL_ADDED" \
+    --deleted  "$ALL_DELETED" \
+    --modified "$ALL_MODIFIED"
+
+# Pass 2 — Java symbol location updates only
 if [ -n "${HAS_JAVA}" ]; then
     python3 "$AGENT_DIR/scripts/sync-memory.py" \
         --jsonl    "$JSONL" \
         --added    "$JAVA_ADDED" \
         --deleted  "$JAVA_DELETED" \
         --modified "$JAVA_MODIFIED"
-fi
-
-if [ -n "${HAS_OTHER}" ]; then
-    python3 "$AGENT_DIR/scripts/sync-files.py" \
-        --jsonl    "$JSONL" \
-        --added    "$OTHER_ADDED" \
-        --deleted  "$OTHER_DELETED" \
-        --modified "$OTHER_MODIFIED"
 fi
 
 python3 "$AGENT_DIR/scripts/sync-to-chroma.py" --url "$CHROMA_URL" 2>&1 | tail -1
@@ -1109,12 +1110,12 @@ allowed-tools: Bash
 
 ## When to Use
 
-Prefer `query-memory` over SQLite FTS when:
+Prefer `query-memory` for semantic searches when:
 - Searching by **behavior or intent** ("find the class that handles retries")
 - The symbol name is unknown but its purpose is known
 - Keyword search returns no results or too many irrelevant ones
 
-Use SQLite FTS directly when you need exact keyword or file path matching.
+Use `--no-chroma` for fast exact keyword or file path matching directly from JSONL.
 
 ---
 
@@ -1336,8 +1337,8 @@ SKILL_EOF
 name: scan-memory
 description: >
   Scans the Java project and populates .agent/memory.jsonl with symbol locations,
-  intent summaries, and tags. Ends by running rebuild.sh to produce a queryable memory.db.
-  Trigger: First-time setup, memory.db missing or empty, after major refactors.
+  intent summaries, and tags. Syncs to ChromaDB for semantic search.
+  Trigger: First-time setup, memory.jsonl missing or empty, after major refactors.
 metadata:
   version: "1.0"
   scope: [root]
@@ -1353,13 +1354,12 @@ allowed-tools: Read, Bash, Write
 
 Bootstraps `.agent/memory.jsonl` by scanning every Java file in `src/main/java`,
 reading each symbol's code, generating a one-sentence `intent`, assigning `tags`,
-and writing structured JSONL entries. Ends by running `rebuild.sh` to produce
-a queryable `memory.db`.
+and writing structured JSONL entries.
 
 ## When to Run
 
 - First time any dev (or agent) clones the project
-- `memory.db` is missing or returns no results
+- `memory.jsonl` is empty or returns no results
 - After a large refactor that moves or renames multiple files
 - Manually triggered: `bash .agent/scripts/scan.sh`
 
@@ -1387,13 +1387,7 @@ Generate:
 {"type":"symbol","file":"path/to/File.java","symbol":"ClassName","kind":"controller","lines":[14,120],"intent":"one sentence","tags":["controller","account"],"commit":"GIT_HASH","ts":"YYYY-MM-DD"}
 ```
 
-### Step 4 — Rebuild the DB
-
-```bash
-bash .agent/scripts/rebuild.sh
-```
-
-### Step 5 — Sync to Chroma (optional)
+### Step 4 — Sync to Chroma (optional)
 
 If ChromaDB is running, push memory to the vector search index:
 
@@ -1403,15 +1397,12 @@ bash .agent/scripts/bootstrap.sh
 python3 .agent/scripts/sync-to-chroma.py --url "\${CHROMA_URL:-http://localhost:8000}"
 ```
 
-Skip this step if ChromaDB is not available — SQLite FTS remains fully functional.
+Skip this step if ChromaDB is not available — JSONL keyword search remains fully functional.
 
-### Step 6 — Verify
+### Step 5 — Verify
 
 ```bash
-sqlite3 .agent/memory.db \
-  "SELECT c.file_path, c.line_start, c.line_end, c.intent
-   FROM code_search s JOIN codebase_index c ON s.rowid = c.id
-   WHERE code_search MATCH 'account' ORDER BY rank LIMIT 5;"
+python3 .agent/scripts/query-memory.py "account" --type symbol --no-chroma
 ```
 
 ---
@@ -1419,20 +1410,23 @@ sqlite3 .agent/memory.db \
 ## How the Agent Uses Memory
 
 ```bash
-sqlite3 .agent/memory.db \
-  "SELECT c.file_path, c.line_start, c.line_end, c.intent
-   FROM code_search s JOIN codebase_index c ON s.rowid = c.id
-   WHERE code_search MATCH 'KEYWORDS' ORDER BY rank LIMIT 10;"
-```
+# Semantic search (requires Chroma)
+python3 .agent/scripts/query-memory.py "KEYWORDS"
 
-Then: `sed -n 'LINE_START,LINE_ENDp' FILE_PATH`
+# Keyword fallback (always available)
+python3 .agent/scripts/query-memory.py "KEYWORDS" --no-chroma
+
+# Filter by type
+python3 .agent/scripts/query-memory.py "KEYWORDS" --type symbol   # Java code
+python3 .agent/scripts/query-memory.py "KEYWORDS" --type change   # git history
+```
 
 ---
 
 ## Git Rules
 
-- `memory.db` → `.gitignore` (rebuilt locally)
-- `memory.jsonl` → committed (portable source of truth)
+- `memory.jsonl` → committed (portable source of truth, append-only history)
+- No SQLite DB — persistence is JSONL + Chroma only
 SKILL_EOF
         wrote=$((wrote + 1))
         echo -e "  ${GREEN}✓${NC} scan-memory"
@@ -1776,153 +1770,23 @@ bundle_agent_dir() {
 
     echo -e "${CYAN}── Agent Memory Infrastructure ─────────────────────────────────────${NC}"
 
-    # ── schema.sql ────────────────────────────────────────────────────
-    if [ ! -f "$dir/schema.sql" ]; then
-        mkdir -p "$dir/scripts"
-        cat > "$dir/schema.sql" << 'AGENT_EOF'
-CREATE TABLE IF NOT EXISTS codebase_index (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    file_path   TEXT NOT NULL,
-    symbol_name TEXT,
-    symbol_type TEXT,
-    line_start  INTEGER,
-    line_end    INTEGER,
-    intent      TEXT,
-    tags        TEXT,
-    author      TEXT,
-    email       TEXT,
-    git_hash    TEXT,
-    updated_at  TEXT
-);
-
--- Full-text search over file_path, symbol_name, intent, tags
-CREATE VIRTUAL TABLE IF NOT EXISTS code_search USING fts5(
-    file_path,
-    symbol_name,
-    intent,
-    tags,
-    content='codebase_index',
-    content_rowid='id'
-);
-
--- Architectural decisions that don't live in code or git messages
-CREATE TABLE IF NOT EXISTS decisions (
-    id        INTEGER PRIMARY KEY AUTOINCREMENT,
-    context   TEXT,
-    decision  TEXT,
-    reason    TEXT,
-    tags      TEXT,
-    author    TEXT,
-    email     TEXT,
-    git_hash  TEXT,
-    timestamp TEXT
-);
-
--- Search effectiveness log: lets the agent learn which queries return useful results
-CREATE TABLE IF NOT EXISTS search_log (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    query       TEXT,
-    result_file TEXT,
-    result_sym  TEXT,
-    was_used    INTEGER DEFAULT 0,  -- 1 = agent actually read this result
-    timestamp   TEXT
-);
-AGENT_EOF
-        wrote=$((wrote + 1))
-        echo -e "  ${GREEN}✓${NC} schema.sql"
-    fi
-
-    # ── rebuild.sh ────────────────────────────────────────────────────
-    if [ ! -f "$dir/scripts/rebuild.sh" ]; then
-        mkdir -p "$dir/scripts"
-        cat > "$dir/scripts/rebuild.sh" << 'AGENT_EOF'
-#!/usr/bin/env bash
-# Rebuilds memory.db from memory.jsonl. Run after any write to memory.jsonl.
-# Usage: bash .agent/scripts/rebuild.sh
-set -euo pipefail
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-DB="$ROOT/.agent/memory.db"
-JSONL="$ROOT/.agent/memory.jsonl"
-SCHEMA="$ROOT/.agent/schema.sql"
-
-echo "Rebuilding $DB..."
-rm -f "$DB"
-sqlite3 "$DB" < "$SCHEMA"
-
-if [ ! -s "$JSONL" ]; then
-    echo "memory.jsonl is empty — blank DB created."
-    exit 0
-fi
-
-python3 - "$DB" "$JSONL" << 'PYEOF'
-import json, sqlite3, sys
-
-db = sqlite3.connect(sys.argv[1])
-symbols = 0
-decisions = 0
-
-with open(sys.argv[2]) as f:
-    for raw in f:
-        raw = raw.strip()
-        if not raw:
-            continue
-        try:
-            r = json.loads(raw)
-        except json.JSONDecodeError as e:
-            print(f"  skipping malformed line: {e}", file=sys.stderr)
-            continue
-
-        if r.get("type") == "symbol":
-            lines = r.get("lines", [None, None])
-            db.execute(
-                "INSERT INTO codebase_index "
-                "(file_path,symbol_name,symbol_type,line_start,line_end,intent,tags,git_hash,updated_at) "
-                "VALUES (?,?,?,?,?,?,?,?,?)",
-                (r.get("file"), r.get("symbol"), r.get("kind"),
-                 lines[0] if lines else None,
-                 lines[1] if len(lines) > 1 else None,
-                 r.get("intent"),
-                 json.dumps(r.get("tags", [])),
-                 r.get("commit"), r.get("ts"))
-            )
-            symbols += 1
-
-        elif r.get("type") == "decision":
-            db.execute(
-                "INSERT INTO decisions (context,decision,reason,tags,git_hash,timestamp) "
-                "VALUES (?,?,?,?,?,?)",
-                (r.get("context"), r.get("decision"), r.get("reason"),
-                 json.dumps(r.get("tags", [])),
-                 r.get("commit"), r.get("ts"))
-            )
-            decisions += 1
-
-db.execute("INSERT INTO code_search(code_search) VALUES('rebuild')")
-db.commit()
-db.close()
-print(f"Done: {symbols} symbols, {decisions} decisions.")
-PYEOF
-AGENT_EOF
-        chmod +x "$dir/scripts/rebuild.sh"
-        wrote=$((wrote + 1))
-        echo -e "  ${GREEN}✓${NC} scripts/rebuild.sh"
-    fi
-
     # ── scan.sh ─────────────────────────────────────────────────────
     if [ ! -f "$dir/scripts/scan.sh" ]; then
         mkdir -p "$dir/scripts"
         cat > "$dir/scripts/scan.sh" << 'AGENT_EOF'
 #!/usr/bin/env bash
 # Scans the Java source tree and emits raw symbol locations for agent processing.
-# Usage: bash .agent/scripts/scan.sh
+# Run from anywhere — script resolves the project root automatically.
 set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+cd "$ROOT"
 
 JAVA_ROOT="src/main/java"
 
 if [ ! -d "$JAVA_ROOT" ]; then
-    echo "ERROR: $JAVA_ROOT not found. Run from project root." >&2
+    echo "ERROR: $JAVA_ROOT not found in $ROOT" >&2
     exit 1
 fi
 
@@ -1986,132 +1850,178 @@ AGENT_EOF
         echo -e "  ${GREEN}✓${NC} scripts/scan.sh"
     fi
 
-    # ── sync-files.py ────────────────────────────────────────────
-    if [ ! -f "$dir/scripts/sync-files.py" ]; then
+    # ── sync-hunks.py ─────────────────────────────────────────────
+    if [ ! -f "$dir/scripts/sync-hunks.py" ]; then
         mkdir -p "$dir/scripts"
-        cat > "$dir/scripts/sync-files.py" << 'AGENT_EOF'
+        cat > "$dir/scripts/sync-hunks.py" << 'AGENT_EOF'
 #!/usr/bin/env python3
 """
-Tracks non-Java file changes in memory.jsonl.
-Called by post-commit hook for .md, .sh, .py, .yaml, .yml, .sql, .json files.
-For SKILL.md files: extracts name/description from frontmatter.
-For other files: records file-level change with path and kind.
+Hunk-level change tracker. Each diff hunk becomes one record in memory.jsonl.
+Handles all tracked file types: .java, .md, .sh, .py, .yaml, .yml, .sql, .json.
+Records are append-only — history is never rewritten.
 """
 import json, sys, os, re, subprocess, argparse
 from datetime import date
 
-TRACKED_EXTENSIONS = {'.md', '.sh', '.py', '.yaml', '.yml', '.sql', '.json'}
-FILE_TYPES_TO_KIND = {
-    '.sh':   'script',
-    '.py':   'script',
-    '.yaml': 'config',
-    '.yml':  'config',
-    '.sql':  'config',
-    '.json': 'config',
-    '.md':   'doc',
-}
+TRACKED_EXTENSIONS = {'.java', '.md', '.sh', '.py', '.yaml', '.yml', '.sql', '.json'}
+SKIP_FILES = {'memory.jsonl', 'memory.db'}
 
-def git_hash(path):
+
+# ── git helpers ───────────────────────────────────────────────────────────────
+
+def git_author():
+    try:
+        name  = subprocess.run(['git', 'config', 'user.name'],  capture_output=True, text=True).stdout.strip()
+        email = subprocess.run(['git', 'config', 'user.email'], capture_output=True, text=True).stdout.strip()
+        return name or 'unknown', email or 'unknown'
+    except Exception:
+        return 'unknown', 'unknown'
+
+def git_commit_hash():
+    try:
+        return subprocess.run(['git', 'log', '-1', '--format=%h'],
+                              capture_output=True, text=True).stdout.strip()
+    except Exception:
+        return 'unknown'
+
+def git_commit_message():
+    try:
+        return subprocess.run(['git', 'log', '-1', '--format=%s'],
+                              capture_output=True, text=True).stdout.strip()
+    except Exception:
+        return ''
+
+def git_commit_date():
+    try:
+        return subprocess.run(['git', 'log', '-1', '--format=%ad', '--date=format:%Y-%m-%d'],
+                              capture_output=True, text=True).stdout.strip()
+    except Exception:
+        return str(date.today())
+
+
+# ── diff parsing ──────────────────────────────────────────────────────────────
+
+def parse_diff_hunks(filepath):
+    """Parse git diff --unified=0 into structured hunk objects."""
     r = subprocess.run(
-        ['git', 'log', '--follow', '-1', '--format=%h', '--', path],
+        ['git', 'diff', '--unified=0', 'HEAD~1', 'HEAD', '--', filepath],
         capture_output=True, text=True
     )
-    return r.stdout.strip() or 'unknown'
+    if not r.stdout:
+        return []
 
-def git_date(path):
-    r = subprocess.run(
-        ['git', 'log', '--follow', '-1', '--format=%ad', '--date=format:%Y-%m-%d', '--', path],
-        capture_output=True, text=True
-    )
-    return r.stdout.strip() or str(date.today())
+    hunks, current = [], None
+    for line in r.stdout.splitlines():
+        m = re.match(r'^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@', line)
+        if m:
+            if current:
+                hunks.append(current)
+            old_count = int(m.group(2)) if m.group(2) is not None else 1
+            new_start = int(m.group(3))
+            new_count = int(m.group(4)) if m.group(4) is not None else 1
+            delta     = new_count - old_count
 
-def extract_skill_meta(path):
-    try:
-        with open(path) as f:
-            content = f.read()
-        name_m = re.search(r'^name:\s*(.+)$', content, re.MULTILINE)
-        name = name_m.group(1).strip() if name_m else None
-        desc_block = re.search(r'^description:\s*>\s*\n((?:[ \t]+.+\n)+)', content, re.MULTILINE)
-        if desc_block:
-            desc = ' '.join(line.strip() for line in desc_block.group(1).strip().splitlines())
-        else:
-            desc_line = re.search(r'^description:\s*(.+)$', content, re.MULTILINE)
-            desc = desc_line.group(1).strip() if desc_line else None
-        return name, desc
-    except Exception:
-        return None, None
+            if old_count == 0:
+                change_type = 'addition'
+            elif new_count == 0:
+                change_type = 'deletion'
+            else:
+                change_type = 'modification'
 
-def extract_intent(path):
-    ext = os.path.splitext(path)[1].lower()
-    basename = os.path.basename(path)
-    try:
-        with open(path) as f:
-            lines = [l.rstrip() for l in f.readlines()]
-        if ext == '.sh':
-            for line in lines:
-                if line.startswith('#') and not line.startswith('#!'):
-                    intent = line.lstrip('#').strip()
-                    if intent:
-                        return intent
-            fns = [re.match(r'^(\w+)\s*\(\)', l) for l in lines]
-            names = [m.group(1) for m in fns if m]
-            if names:
-                return f"Shell script — functions: {', '.join(names[:5])}"
-        elif ext == '.py':
-            joined = '\n'.join(lines)
-            doc = re.search(r'"""(.+?)"""', joined, re.DOTALL)
-            if doc:
-                return doc.group(1).strip().splitlines()[0]
-            for line in lines:
-                if line.startswith('#') and not line.startswith('#!'):
-                    intent = line.lstrip('#').strip()
-                    if intent:
-                        return intent
-        elif ext == '.md':
-            for line in lines:
-                if line.startswith('#'):
-                    return line.lstrip('#').strip()
-        elif ext in ('.yaml', '.yml'):
-            for line in lines:
-                if line.startswith('#'):
-                    intent = line.lstrip('#').strip()
-                    if intent:
-                        return intent
-            for line in lines:
-                if line and not line.startswith(' '):
-                    return f"Config key: {line.split(':')[0].strip()}"
-        elif ext == '.sql':
-            for line in lines:
-                if line.startswith('--'):
-                    intent = line.lstrip('-').strip()
-                    if intent:
-                        return intent
-    except Exception:
-        pass
+            current = {
+                'hunk_header': line,
+                'hunk_content': '',
+                'lines_start': new_start,
+                'lines_end':   new_start + max(new_count - 1, 0),
+                'lines_delta': delta,
+                'change_type': change_type,
+                'added':   [],
+                'removed': [],
+            }
+        elif current is not None:
+            if line.startswith('+') and not line.startswith('+++'):
+                current['added'].append(line[1:].strip())
+                current['hunk_content'] += line + '\n'
+            elif line.startswith('-') and not line.startswith('---'):
+                current['removed'].append(line[1:].strip())
+                current['hunk_content'] += line + '\n'
+
+    if current:
+        hunks.append(current)
+    return hunks
+
+
+# ── classification helpers ────────────────────────────────────────────────────
+
+def file_kind(filepath):
+    ext      = os.path.splitext(filepath)[1].lower()
+    basename = os.path.basename(filepath)
+    if ext == '.java':                      return 'java'
+    if basename == 'SKILL.md':             return 'skill'
+    if basename in ('CLAUDE.md',):         return 'config'
+    if ext in ('.yaml', '.yml', '.sql', '.json'): return 'config'
+    if ext in ('.sh', '.py'):              return 'script'
+    if ext == '.md':                       return 'doc'
+    return 'file'
+
+
+def extract_symbol(filepath, hunk):
+    """Pull a meaningful label from hunk context or file metadata."""
+    basename = os.path.basename(filepath)
+    ext      = os.path.splitext(filepath)[1].lower()
+
+    if basename == 'SKILL.md':
+        try:
+            with open(filepath) as f:
+                content = f.read()
+            m = re.search(r'^name:\s*(.+)$', content, re.MULTILINE)
+            return m.group(1).strip() if m else basename
+        except Exception:
+            return basename
+
+    if ext == '.java':
+        return os.path.splitext(basename)[0]
+
+    # Try to find a meaningful identifier in the changed lines
+    candidates = hunk.get('added') or hunk.get('removed') or []
+    for line in candidates:
+        if line.startswith('#') and not line.startswith('#!'):
+            text = line.lstrip('#').strip()
+            if text:
+                return text[:72]
+        fn = re.match(r'^(\w[\w_]+)\s*\(\)|^def (\w+)|^class (\w+)|^function (\w+)', line)
+        if fn:
+            return next(g for g in fn.groups() if g)
+
     return basename
 
-def classify_file(path):
-    basename = os.path.basename(path)
-    ext = os.path.splitext(basename)[1].lower()
-    if basename == 'SKILL.md':
-        name, desc = extract_skill_meta(path)
-        return 'skill', name or basename, desc or 'Agent skill definition'
-    if basename == 'CLAUDE.md':
-        return 'config', 'CLAUDE.md', 'Agent context and skill-driven protocol'
-    kind = FILE_TYPES_TO_KIND.get(ext, 'file')
-    intent = extract_intent(path)
-    return kind, basename, intent
 
-def should_track(path):
-    ext = os.path.splitext(path)[1].lower()
-    if ext not in TRACKED_EXTENSIONS:
-        return False
-    if os.path.basename(path) in ('memory.jsonl', 'memory.db'):
-        return False
-    return True
+def derive_tags(filepath, change_type, commit_msg):
+    tags = set()
+    tags.add(file_kind(filepath))
+    tags.add(change_type)
+
+    m = re.match(r'^(feat|fix|refactor|sec|perf|chore|docs|test|ci)\b', commit_msg)
+    if m:
+        tags.add(m.group(1))
+
+    for part in filepath.replace('\\', '/').split('/')[:-1]:
+        if part and part not in {'.', '..', 'src', 'main', 'java', 'assets', 'scripts'}:
+            tags.add(part)
+
+    return sorted(tags)
+
+
+# ── helpers ───────────────────────────────────────────────────────────────────
+
+def should_track(filepath):
+    ext = os.path.splitext(filepath)[1].lower()
+    return ext in TRACKED_EXTENSIONS and os.path.basename(filepath) not in SKIP_FILES
+
 
 def split_files(raw):
     return [f.strip() for f in (raw or '').split('\n') if f.strip()]
+
 
 def load_jsonl(path):
     entries = []
@@ -2127,11 +2037,12 @@ def load_jsonl(path):
                     pass
     return entries
 
-NON_JAVA_TYPES = {'skill', 'file', 'doc', 'script', 'config'}
+
+# ── main ──────────────────────────────────────────────────────────────────────
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument('--jsonl', required=True)
+    p.add_argument('--jsonl',    required=True)
     p.add_argument('--added',    default='')
     p.add_argument('--deleted',  default='')
     p.add_argument('--modified', default='')
@@ -2144,40 +2055,77 @@ def main():
     if not (added or deleted or modified):
         return
 
-    entries = load_jsonl(args.jsonl)
-    dirty   = set(deleted + modified)
-    kept = [e for e in entries if not (e.get('type') in NON_JAVA_TYPES and e.get('file') in dirty)]
+    author, email = git_author()
+    commit        = git_commit_hash()
+    commit_msg    = git_commit_message()
+    ts            = git_commit_date()
 
-    stats = {'deleted': len(deleted), 'added': 0, 'updated': 0}
+    existing = load_jsonl(args.jsonl)
+    new_records = []
+    stats = {'files': 0, 'hunks': 0}
 
     for filepath in added + modified:
-        if not os.path.exists(filepath):
+        hunks = parse_diff_hunks(filepath)
+        if not hunks:
             continue
-        kind, symbol, intent = classify_file(filepath)
-        commit = git_hash(filepath)
-        ts     = git_date(filepath)
-        kept.append({
-            'type': kind, 'file': filepath, 'symbol': symbol,
-            'kind': kind, 'intent': intent,
-            'tags': [], 'commit': commit, 'ts': ts,
-        })
-        if filepath in added:
-            stats['added'] += 1
-        else:
-            stats['updated'] += 1
+        stats['files'] += 1
+        kind = file_kind(filepath)
+        for hunk in hunks:
+            new_records.append({
+                'type':        'change',
+                'change_type': hunk['change_type'],
+                'file':        filepath,
+                'file_kind':   kind,
+                'symbol':      extract_symbol(filepath, hunk),
+                'hunk_header': hunk['hunk_header'],
+                'hunk_content': hunk['hunk_content'].strip(),
+                'lines_start': hunk['lines_start'],
+                'lines_end':   hunk['lines_end'],
+                'lines_delta': hunk['lines_delta'],
+                'intent':      commit_msg,
+                'tags':        derive_tags(filepath, hunk['change_type'], commit_msg),
+                'commit':      commit,
+                'author':      author,
+                'email':       email,
+                'ts':          ts,
+            })
+            stats['hunks'] += 1
 
+    for filepath in deleted:
+        new_records.append({
+            'type':        'change',
+            'change_type': 'deletion',
+            'file':        filepath,
+            'file_kind':   file_kind(filepath),
+            'symbol':      os.path.basename(filepath),
+            'hunk_header': '',
+            'hunk_content': '',
+            'lines_start': 0,
+            'lines_end':   0,
+            'lines_delta': 0,
+            'intent':      commit_msg,
+            'tags':        derive_tags(filepath, 'deletion', commit_msg),
+            'commit':      commit,
+            'author':      author,
+            'email':       email,
+            'ts':          ts,
+        })
+        stats['hunks'] += 1
+
+    # Append only — history is never rewritten
     with open(args.jsonl, 'w') as f:
-        for entry in kept:
+        for entry in existing + new_records:
             f.write(json.dumps(entry, ensure_ascii=False) + '\n')
 
-    print(f"  [files] deleted={stats['deleted']} added={stats['added']} updated={stats['updated']}")
+    print(f"  [hunks] files={stats['files']} hunks={stats['hunks']}")
+
 
 if __name__ == '__main__':
     main()
 AGENT_EOF
-        chmod +x "$dir/scripts/sync-files.py"
+        chmod +x "$dir/scripts/sync-hunks.py"
         wrote=$((wrote + 1))
-        echo -e "  ${GREEN}✓${NC} scripts/sync-files.py"
+        echo -e "  ${GREEN}✓${NC} scripts/sync-hunks.py"
     fi
 
     # ── sync-to-chroma.py ────────────────────────────────────────
@@ -2185,12 +2133,19 @@ AGENT_EOF
         mkdir -p "$dir/scripts"
         cat > "$dir/scripts/sync-to-chroma.py" << 'AGENT_EOF'
 #!/usr/bin/env python3
+"""
+Pushes all memory.jsonl entries to ChromaDB.
+Handles two record types:
+  symbol — Java code symbols from scan-memory
+  change — git hunk records from sync-hunks.py
+"""
 import json, sys, os, argparse
 try:
     import chromadb
 except ImportError:
     print("ERROR: chromadb not installed. Run: pip install chromadb")
     sys.exit(1)
+
 
 def load_jsonl(path):
     entries = []
@@ -2206,71 +2161,98 @@ def load_jsonl(path):
                     pass
     return entries
 
-def get_author_from_git():
-    import subprocess
-    try:
-        r = subprocess.run(["git", "config", "user.name"], capture_output=True, text=True)
-        author = r.stdout.strip() or "unknown"
-        r = subprocess.run(["git", "config", "user.email"], capture_output=True, text=True)
-        email = r.stdout.strip() or "unknown"
-        return author, email
-    except Exception:
-        return "unknown", "unknown"
+
+def entry_to_chroma(e):
+    """Return (id, document, metadata) for any record type."""
+    record_type = e.get('type', 'symbol')
+
+    if record_type == 'change':
+        entry_id = f"change:{e.get('commit','')}:{e.get('file','')}:{e.get('lines_start', 0)}"
+        doc = f"{e.get('change_type','')} in {e.get('file','')} [{e.get('symbol','')}]: {e.get('intent','')}"
+        hunk = e.get('hunk_content', '')
+        if hunk:
+            doc += f"\n{hunk[:500]}"
+        tags = e.get('tags', [])
+        if tags:
+            doc += f"\nTags: {', '.join(tags)}"
+        metadata = {
+            'type':        'change',
+            'change_type': e.get('change_type', ''),
+            'file':        e.get('file', ''),
+            'file_kind':   e.get('file_kind', ''),
+            'symbol':      e.get('symbol', ''),
+            'lines_start': e.get('lines_start', 0),
+            'lines_end':   e.get('lines_end', 0),
+            'lines_delta': e.get('lines_delta', 0),
+            'intent':      e.get('intent', ''),
+            'tags':        json.dumps(tags),
+            'commit':      e.get('commit', ''),
+            'author':      e.get('author', ''),
+            'email':       e.get('email', ''),
+            'ts':          e.get('ts', ''),
+        }
+    else:
+        entry_id = f"symbol:{e.get('file', '')}:{e.get('symbol', '')}"
+        lines = e.get('lines', [0, 0])
+        tags  = e.get('tags', [])
+        kind  = e.get('kind', '')
+        doc = f"{e.get('symbol', '')} ({kind}): {e.get('intent', '')}"
+        if tags:
+            doc += f" Tags: {', '.join(tags)}"
+        metadata = {
+            'type':        'symbol',
+            'symbol':      e.get('symbol', ''),
+            'kind':        kind,
+            'file':        e.get('file', ''),
+            'lines_start': lines[0] if lines else 0,
+            'lines_end':   lines[1] if len(lines) > 1 else 0,
+            'intent':      e.get('intent', ''),
+            'tags':        json.dumps(tags),
+            'author':      e.get('author', e.get('email', '')),
+            'email':       e.get('email', ''),
+            'commit':      e.get('commit', ''),
+            'ts':          e.get('ts', ''),
+        }
+
+    return entry_id, doc, metadata
+
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--jsonl", default=".agent/memory.jsonl")
-    p.add_argument("--url", default="http://localhost:8000")
-    p.add_argument("--collection", default="codebase")
+    p.add_argument('--jsonl',      default='.agent/memory.jsonl')
+    p.add_argument('--url',        default='http://localhost:8000')
+    p.add_argument('--collection', default='codebase')
     args = p.parse_args()
 
-    author, email = get_author_from_git()
     entries = load_jsonl(args.jsonl)
-
     if not entries:
         print("No entries in memory.jsonl")
         sys.exit(1)
 
-    client = chromadb.HttpClient(host=args.url.replace("http://", "").split(":")[0],
-                             port=args.url.split(":")[-1] if ":" in args.url else "8000")
+    host = args.url.replace('http://', '').replace('https://', '').split(':')[0]
+    port = int(args.url.split(':')[-1]) if ':' in args.url else 8000
+    client     = chromadb.HttpClient(host=host, port=port)
     collection = client.get_or_create_collection(args.collection)
 
     ids, documents, metadatas = [], [], []
     for e in entries:
-        entry_id = f"{e.get('file', '')}:{e.get('symbol', '')}"
-        intent = e.get('intent', '')
-        tags = e.get('tags', [])
-        kind = e.get('kind', '')
-        lines = e.get('lines', [0, 0])
-
-        combined_doc = f"{e.get('symbol', '')} ({kind}): {intent}"
-        if tags:
-            combined_doc += f" Tags: {', '.join(tags)}"
-
-        ids.append(entry_id)
-        documents.append(combined_doc)
-        metadatas.append({
-            "symbol": e.get('symbol', ''),
-            "kind": kind,
-            "file": e.get('file', ''),
-            "lines_start": lines[0],
-            "lines_end": lines[1],
-            "intent": intent,
-            "tags": json.dumps(tags),
-            "author": author,
-            "email": email,
-            "commit": e.get('commit', ''),
-            "ts": e.get('ts', '')
-        })
+        try:
+            eid, doc, meta = entry_to_chroma(e)
+            ids.append(eid)
+            documents.append(doc)
+            metadatas.append(meta)
+        except Exception as ex:
+            print(f"  skipping malformed entry: {ex}", file=sys.stderr)
 
     if ids:
         collection.upsert(ids=ids, documents=documents, metadatas=metadatas)
 
-    print(f"Synced {len(ids)} entries to Chroma")
-    print(f"  Author: {author}")
-    print(f"  Email: {email}")
+    symbols = sum(1 for e in entries if e.get('type') == 'symbol')
+    changes = sum(1 for e in entries if e.get('type') == 'change')
+    print(f"Synced {len(ids)} entries to Chroma (symbols={symbols} changes={changes})")
 
-if __name__ == "__main__":
+
+if __name__ == '__main__':
     main()
 AGENT_EOF
         chmod +x "$dir/scripts/sync-to-chroma.py"
@@ -2283,11 +2265,16 @@ AGENT_EOF
         mkdir -p "$dir/scripts"
         cat > "$dir/scripts/query-memory.py" << 'AGENT_EOF'
 #!/usr/bin/env python3
+"""
+Searches memory.jsonl via ChromaDB (semantic) or JSONL keyword fallback.
+Handles both record types: symbol (Java code) and change (git hunks).
+"""
 import json, sys, argparse, os
 
-def search_jsonl(jsonl_path, query, kind_filter, limit):
+
+def search_jsonl(jsonl_path, query, kind_filter, type_filter, limit):
     if not os.path.exists(jsonl_path):
-        print(f"ERROR: {jsonl_path} not found. Run scan-memory first.")
+        print(f"ERROR: {jsonl_path} not found. Run scan-memory or make a commit first.")
         sys.exit(1)
 
     terms = [t.lower() for t in query.split()]
@@ -2303,17 +2290,20 @@ def search_jsonl(jsonl_path, query, kind_filter, limit):
             except json.JSONDecodeError:
                 continue
 
-            if e.get("type") != "symbol":
+            if type_filter and e.get('type') != type_filter:
                 continue
-            if kind_filter and e.get("kind") != kind_filter:
-                continue
+            if kind_filter:
+                if e.get('kind') != kind_filter and e.get('file_kind') != kind_filter:
+                    continue
 
-            haystack = " ".join([
-                e.get("symbol", ""),
-                e.get("kind", ""),
-                e.get("intent", ""),
-                e.get("file", ""),
-                " ".join(e.get("tags", [])),
+            haystack = ' '.join([
+                e.get('symbol', ''),
+                e.get('file', ''),
+                e.get('intent', ''),
+                e.get('hunk_content', ''),
+                e.get('change_type', ''),
+                e.get('file_kind', e.get('kind', '')),
+                ' '.join(e.get('tags', [])),
             ]).lower()
 
             score = sum(1 for t in terms if t in haystack)
@@ -2323,50 +2313,84 @@ def search_jsonl(jsonl_path, query, kind_filter, limit):
     results.sort(key=lambda x: x[0], reverse=True)
     return results[:limit]
 
-def print_result(m, score_label):
-    lines = m.get("lines", [0, 0])
-    print(f"## {m.get('symbol')} ({m.get('kind')})")
-    print(f"   File: {m.get('file')}")
-    print(f"   Lines: {lines[0]}-{lines[1]}")
+
+def print_symbol(m, score_label):
+    lines = m.get('lines', m.get('lines_start'))
+    if isinstance(lines, list):
+        line_str = f"{lines[0]}-{lines[1]}"
+    elif lines:
+        line_str = f"{m.get('lines_start', 0)}-{m.get('lines_end', 0)}"
+    else:
+        line_str = '—'
+    print(f"## {m.get('symbol')} ({m.get('kind', m.get('file_kind', ''))})")
+    print(f"   File:   {m.get('file')}")
+    print(f"   Lines:  {line_str}")
     print(f"   Intent: {m.get('intent')}")
-    print(f"   Score: {score_label}")
+    print(f"   Score:  {score_label}")
     print()
+
+
+def print_change(m, score_label):
+    print(f"## [{m.get('change_type','?').upper()}] {m.get('symbol')} — {m.get('file_kind','')}")
+    print(f"   File:   {m.get('file')}")
+    print(f"   Lines:  {m.get('lines_start', 0)}-{m.get('lines_end', 0)}  Δ{m.get('lines_delta', 0):+d}")
+    print(f"   Intent: {m.get('intent')}")
+    print(f"   Commit: {m.get('commit')}  {m.get('ts')}  {m.get('author')} <{m.get('email')}>")
+    hunk = (m.get('hunk_content') or '').strip()
+    if hunk:
+        preview = '\n   '.join(hunk.splitlines()[:6])
+        print(f"   Diff:\n   {preview}")
+    print(f"   Score:  {score_label}")
+    print()
+
+
+def print_result(m, score_label):
+    if m.get('type') == 'change':
+        print_change(m, score_label)
+    else:
+        print_symbol(m, score_label)
+
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("query", nargs="?", default="")
-    p.add_argument("--url", default="http://localhost:8000")
-    p.add_argument("--collection", default="codebase")
-    p.add_argument("--jsonl", default=".agent/memory.jsonl")
-    p.add_argument("--kind", default="")
-    p.add_argument("--limit", type=int, default=10)
-    p.add_argument("--json", action="store_true")
-    p.add_argument("--no-chroma", action="store_true", help="Skip Chroma, query JSONL directly")
+    p.add_argument('query', nargs='?', default='')
+    p.add_argument('--url',        default='http://localhost:8000')
+    p.add_argument('--collection', default='codebase')
+    p.add_argument('--jsonl',      default='.agent/memory.jsonl')
+    p.add_argument('--kind',       default='', help='Filter by kind/file_kind')
+    p.add_argument('--type',       default='', help='Filter by type: symbol | change')
+    p.add_argument('--limit',      type=int, default=10)
+    p.add_argument('--no-chroma',  action='store_true')
     args = p.parse_args()
 
     if not args.query:
-        print("Usage: query-memory.py <query> [--kind controller] [--limit 5] [--no-chroma]")
+        print("Usage: query-memory.py <query> [--type change|symbol] [--kind skill] [--limit 5]")
         sys.exit(1)
 
     if not args.no_chroma:
         try:
             import chromadb
-            host = args.url.replace("http://", "").replace("https://", "").split(":")[0]
-            port = int(args.url.split(":")[-1]) if ":" in args.url else 8000
+            host = args.url.replace('http://', '').replace('https://', '').split(':')[0]
+            port = int(args.url.split(':')[-1]) if ':' in args.url else 8000
             client = chromadb.HttpClient(host=host, port=port)
             client.heartbeat()
             collection = client.get_collection(args.collection)
 
-            where_clause = {"kind": args.kind} if args.kind else None
+            where = {}
+            if args.kind:
+                where['$or'] = [{'kind': args.kind}, {'file_kind': args.kind}]
+            if args.type:
+                where['type'] = args.type
+
             results = collection.query(
                 query_texts=[args.query],
                 n_results=args.limit,
-                where=where_clause,
+                where=where or None,
             )
 
-            for i in range(len(results["ids"][0])):
-                m = results["metadatas"][0][i]
-                dist = results["distances"][0][i] if results.get("distances") else 0
+            for i in range(len(results['ids'][0])):
+                m = results['metadatas'][0][i]
+                dist  = results['distances'][0][i] if results.get('distances') else 0
                 score = max(0, 1 - dist)
                 print_result(m, f"{score:.2%}")
             return
@@ -2374,15 +2398,15 @@ def main():
         except Exception as e:
             print(f"[query-memory] Chroma unavailable ({e}) — falling back to JSONL", file=sys.stderr)
 
-    hits = search_jsonl(args.jsonl, args.query, args.kind, args.limit)
+    hits = search_jsonl(args.jsonl, args.query, args.kind, args.type, args.limit)
     if not hits:
         print("No results found.")
         return
-
     for score, e in hits:
         print_result(e, f"{score} keyword match(es)")
 
-if __name__ == "__main__":
+
+if __name__ == '__main__':
     main()
 AGENT_EOF
         chmod +x "$dir/scripts/query-memory.py"
