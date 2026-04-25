@@ -1,0 +1,3 @@
+{"type": "script", "file": ".agent/scripts/sync-files.py", "symbol": "sync-files.py", "kind": "script", "lines": [1, 170], "intent": ".agent/scripts/sync-files.py", "tags": [], "commit": "5ed979e", "ts": "2026-04-25"}
+{"type": "script", "file": "setup.sh", "symbol": "setup.sh", "kind": "script", "lines": [1, 2730], "intent": "setup.sh", "tags": [], "commit": "5ed979e", "ts": "2026-04-25"}
+{"type": "script", "file": "skills/commit/assets/post-commit.sh", "symbol": "post-commit.sh", "kind": "script", "lines": [1, 53], "intent": "skills/commit/assets/post-commit.sh", "tags": [], "commit": "5ed979e", "ts": "2026-04-25"}

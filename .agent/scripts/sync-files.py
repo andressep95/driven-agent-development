@@ -56,6 +56,71 @@ def extract_skill_meta(path):
         return None, None
 
 
+def extract_intent(path):
+    """Extract a meaningful one-line intent from any file type."""
+    ext = os.path.splitext(path)[1].lower()
+    basename = os.path.basename(path)
+    try:
+        with open(path) as f:
+            lines = [l.rstrip() for l in f.readlines()]
+
+        if ext == '.sh':
+            # First non-shebang comment line
+            for line in lines:
+                if line.startswith('#') and not line.startswith('#!'):
+                    intent = line.lstrip('#').strip()
+                    if intent:
+                        return intent
+            # Fallback: list function names
+            fns = [re.match(r'^(\w+)\s*\(\)', l) for l in lines]
+            names = [m.group(1) for m in fns if m]
+            if names:
+                return f"Shell script — functions: {', '.join(names[:5])}"
+
+        elif ext == '.py':
+            # Module docstring
+            joined = '\n'.join(lines)
+            doc = re.search(r'"""(.+?)"""', joined, re.DOTALL)
+            if doc:
+                first_line = doc.group(1).strip().splitlines()[0]
+                return first_line
+            # First comment
+            for line in lines:
+                if line.startswith('#') and not line.startswith('#!'):
+                    intent = line.lstrip('#').strip()
+                    if intent:
+                        return intent
+
+        elif ext == '.md':
+            # First H1 or H2 heading
+            for line in lines:
+                if line.startswith('#'):
+                    return line.lstrip('#').strip()
+
+        elif ext in ('.yaml', '.yml'):
+            # First comment or top-level key
+            for line in lines:
+                if line.startswith('#'):
+                    intent = line.lstrip('#').strip()
+                    if intent:
+                        return intent
+            for line in lines:
+                if line and not line.startswith(' '):
+                    return f"Config key: {line.split(':')[0].strip()}"
+
+        elif ext == '.sql':
+            for line in lines:
+                if line.startswith('--'):
+                    intent = line.lstrip('-').strip()
+                    if intent:
+                        return intent
+
+    except Exception:
+        pass
+
+    return basename
+
+
 def classify_file(path):
     basename = os.path.basename(path)
     ext = os.path.splitext(basename)[1].lower()
@@ -68,7 +133,8 @@ def classify_file(path):
         return 'config', 'CLAUDE.md', 'Agent context and skill-driven protocol'
 
     kind = FILE_TYPES_TO_KIND.get(ext, 'file')
-    return kind, basename, f'{path}'
+    intent = extract_intent(path)
+    return kind, basename, intent
 
 
 def should_track(path):
@@ -81,12 +147,6 @@ def should_track(path):
     return True
 
 
-def file_line_count(path):
-    try:
-        with open(path) as f:
-            return sum(1 for _ in f)
-    except Exception:
-        return 0
 
 
 def split_files(raw):
@@ -140,14 +200,12 @@ def main():
         kind, symbol, intent = classify_file(filepath)
         commit = git_hash(filepath)
         ts     = git_date(filepath)
-        lines  = file_line_count(filepath)
 
         kept.append({
             'type':   kind,
             'file':   filepath,
             'symbol': symbol,
             'kind':   kind,
-            'lines':  [1, lines],
             'intent': intent,
             'tags':   [],
             'commit': commit,

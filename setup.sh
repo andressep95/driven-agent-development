@@ -2041,6 +2041,55 @@ def extract_skill_meta(path):
     except Exception:
         return None, None
 
+def extract_intent(path):
+    ext = os.path.splitext(path)[1].lower()
+    basename = os.path.basename(path)
+    try:
+        with open(path) as f:
+            lines = [l.rstrip() for l in f.readlines()]
+        if ext == '.sh':
+            for line in lines:
+                if line.startswith('#') and not line.startswith('#!'):
+                    intent = line.lstrip('#').strip()
+                    if intent:
+                        return intent
+            fns = [re.match(r'^(\w+)\s*\(\)', l) for l in lines]
+            names = [m.group(1) for m in fns if m]
+            if names:
+                return f"Shell script — functions: {', '.join(names[:5])}"
+        elif ext == '.py':
+            joined = '\n'.join(lines)
+            doc = re.search(r'"""(.+?)"""', joined, re.DOTALL)
+            if doc:
+                return doc.group(1).strip().splitlines()[0]
+            for line in lines:
+                if line.startswith('#') and not line.startswith('#!'):
+                    intent = line.lstrip('#').strip()
+                    if intent:
+                        return intent
+        elif ext == '.md':
+            for line in lines:
+                if line.startswith('#'):
+                    return line.lstrip('#').strip()
+        elif ext in ('.yaml', '.yml'):
+            for line in lines:
+                if line.startswith('#'):
+                    intent = line.lstrip('#').strip()
+                    if intent:
+                        return intent
+            for line in lines:
+                if line and not line.startswith(' '):
+                    return f"Config key: {line.split(':')[0].strip()}"
+        elif ext == '.sql':
+            for line in lines:
+                if line.startswith('--'):
+                    intent = line.lstrip('-').strip()
+                    if intent:
+                        return intent
+    except Exception:
+        pass
+    return basename
+
 def classify_file(path):
     basename = os.path.basename(path)
     ext = os.path.splitext(basename)[1].lower()
@@ -2050,7 +2099,8 @@ def classify_file(path):
     if basename == 'CLAUDE.md':
         return 'config', 'CLAUDE.md', 'Agent context and skill-driven protocol'
     kind = FILE_TYPES_TO_KIND.get(ext, 'file')
-    return kind, basename, path
+    intent = extract_intent(path)
+    return kind, basename, intent
 
 def should_track(path):
     ext = os.path.splitext(path)[1].lower()
@@ -2059,13 +2109,6 @@ def should_track(path):
     if os.path.basename(path) in ('memory.jsonl', 'memory.db'):
         return False
     return True
-
-def file_line_count(path):
-    try:
-        with open(path) as f:
-            return sum(1 for _ in f)
-    except Exception:
-        return 0
 
 def split_files(raw):
     return [f.strip() for f in (raw or '').split('\n') if f.strip()]
@@ -2113,10 +2156,9 @@ def main():
         kind, symbol, intent = classify_file(filepath)
         commit = git_hash(filepath)
         ts     = git_date(filepath)
-        lines  = file_line_count(filepath)
         kept.append({
             'type': kind, 'file': filepath, 'symbol': symbol,
-            'kind': kind, 'lines': [1, lines], 'intent': intent,
+            'kind': kind, 'intent': intent,
             'tags': [], 'commit': commit, 'ts': ts,
         })
         if filepath in added:
