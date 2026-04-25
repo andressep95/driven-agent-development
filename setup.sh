@@ -1617,11 +1617,13 @@ CREATE TABLE IF NOT EXISTS codebase_index (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     file_path   TEXT NOT NULL,
     symbol_name TEXT,
-    symbol_type TEXT,   -- controller | service | repository | domain | config | dto | endpoint | util
+    symbol_type TEXT,
     line_start  INTEGER,
     line_end    INTEGER,
-    intent      TEXT,   -- one-sentence description of what it does
-    tags        TEXT,   -- JSON array: ["auth","aws","account"]
+    intent      TEXT,
+    tags        TEXT,
+    author      TEXT,
+    email       TEXT,
     git_hash    TEXT,
     updated_at  TEXT
 );
@@ -1639,10 +1641,12 @@ CREATE VIRTUAL TABLE IF NOT EXISTS code_search USING fts5(
 -- Architectural decisions that don't live in code or git messages
 CREATE TABLE IF NOT EXISTS decisions (
     id        INTEGER PRIMARY KEY AUTOINCREMENT,
-    context   TEXT,    -- what triggered the decision
-    decision  TEXT,    -- what was chosen
-    reason    TEXT,    -- why
-    tags      TEXT,    -- JSON array
+    context   TEXT,
+    decision  TEXT,
+    reason    TEXT,
+    tags      TEXT,
+    author    TEXT,
+    email     TEXT,
     git_hash  TEXT,
     timestamp TEXT
 );
@@ -1815,6 +1819,177 @@ AGENT_EOF
         echo -e "  ${GREEN}✓${NC} scripts/scan.sh"
     fi
 
+    # ── sync-to-chroma.py ────────────────────────────────────────
+    if [ ! -f "$dir/scripts/sync-to-chroma.py" ]; then
+        mkdir -p "$dir/scripts"
+        cat > "$dir/scripts/sync-to-chroma.py" << 'AGENT_EOF'
+#!/usr/bin/env python3
+import json, sys, os, argparse
+try:
+    import chromadb
+except ImportError:
+    print("ERROR: chromadb not installed. Run: pip install chromadb")
+    sys.exit(1)
+
+def load_jsonl(path):
+    entries = []
+    if not os.path.exists(path):
+        return entries
+    with open(path) as f:
+        for raw in f:
+            raw = raw.strip()
+            if raw:
+                try:
+                    entries.append(json.loads(raw))
+                except json.JSONDecodeError:
+                    pass
+    return entries
+
+def get_author_from_git():
+    import subprocess
+    try:
+        r = subprocess.run(["git", "config", "user.name"], capture_output=True, text=True)
+        author = r.stdout.strip() or "unknown"
+        r = subprocess.run(["git", "config", "user.email"], capture_output=True, text=True)
+        email = r.stdout.strip() or "unknown"
+        return author, email
+    except Exception:
+        return "unknown", "unknown"
+
+def main():
+    p = argparse.ArgumentParser()
+    p.add_argument("--jsonl", default=".agent/memory.jsonl")
+    p.add_argument("--url", default="http://localhost:8000")
+    p.add_argument("--collection", default="codebase")
+    args = p.parse_args()
+
+    author, email = get_author_from_git()
+    entries = load_jsonl(args.jsonl)
+
+    if not entries:
+        print("No entries in memory.jsonl")
+        sys.exit(1)
+
+    client = chromadb.HttpClient(host=args.url.replace("http://", "").split(":")[0],
+                             port=args.url.split(":")[-1] if ":" in args.url else "8000")
+    collection = client.get_or_create_collection(args.collection)
+
+    ids, documents, metadatas = [], [], []
+    for e in entries:
+        entry_id = f"{e.get('file', '')}:{e.get('symbol', '')}"
+        intent = e.get('intent', '')
+        tags = e.get('tags', [])
+        kind = e.get('kind', '')
+        lines = e.get('lines', [0, 0])
+
+        combined_doc = f"{e.get('symbol', '')} ({kind}): {intent}"
+        if tags:
+            combined_doc += f" Tags: {', '.join(tags)}"
+
+        ids.append(entry_id)
+        documents.append(combined_doc)
+        metadatas.append({
+            "symbol": e.get('symbol', ''),
+            "kind": kind,
+            "file": e.get('file', ''),
+            "lines_start": lines[0],
+            "lines_end": lines[1],
+            "intent": intent,
+            "tags": json.dumps(tags),
+            "author": author,
+            "email": email,
+            "commit": e.get('commit', ''),
+            "ts": e.get('ts', '')
+        })
+
+    if ids:
+        collection.upsert(ids=ids, documents=documents, metadatas=metadatas)
+
+    print(f"Synced {len(ids)} entries to Chroma")
+    print(f"  Author: {author}")
+    print(f"  Email: {email}")
+
+if __name__ == "__main__":
+    main()
+AGENT_EOF
+        chmod +x "$dir/scripts/sync-to-chroma.py"
+        wrote=$((wrote + 1))
+        echo -e "  ${GREEN}✓${NC} scripts/sync-to-chroma.py"
+    fi
+
+    # ── query-memory.py ────────────────────────────────────────────
+    if [ ! -f "$dir/scripts/query-memory.py" ]; then
+        mkdir -p "$dir/scripts"
+        cat > "$dir/scripts/query-memory.py" << 'AGENT_EOF'
+#!/usr/bin/env python3
+import json, sys, argparse
+try:
+    import chromadb
+except ImportError:
+    print("ERROR: chromadb not installed")
+    sys.exit(1)
+
+def main():
+    p = argparse.ArgumentParser()
+    p.add_argument("query", nargs="?", default="")
+    p.add_argument("--url", default="http://localhost:8000")
+    p.add_argument("--collection", default="codebase")
+    p.add_argument("--kind", default="")
+    p.add_argument("--limit", type=int, default=10)
+    p.add_argument("--json", action="store_true")
+    args = p.parse_args()
+
+    if not args.query:
+        print("Usage: query-memory.py <query> [--kind controller] [--limit 5] [--json]")
+        sys.exit(1)
+
+    client = chromadb.HttpClient(host=args.url.replace("http://", "").split(":")[0],
+                             port=args.url.split(":")[-1] if ":" in args.url else "8000")
+    collection = client.get_collection(args.collection)
+
+    where_clause = {"kind": args.kind} if args.kind else None
+    results = collection.query(query_texts=[args.query], n_results=args.limit, where=where_clause)
+
+    for i in range(len(results["ids"][0])):
+        m = results["metadatas"][0][i]
+        dist = results["distances"][0][i] if results.get("distances") else 0
+        score = max(0, 1 - dist)
+        print(f"## {m.get('symbol')} ({m.get('kind')})")
+        print(f"   File: {m.get('file')}")
+        print(f"   Lines: {m.get('lines_start')}-{m.get('lines_end')}")
+        print(f"   Intent: {m.get('intent')}")
+        print(f"   Author: {m.get('author')} <{m.get('email')}>")
+        print(f"   Score: {score:.2%}")
+        print()
+
+if __name__ == "__main__":
+    main()
+AGENT_EOF
+        chmod +x "$dir/scripts/query-memory.py"
+        wrote=$((wrote + 1))
+        echo -e "  ${GREEN}✓${NC} scripts/query-memory.py"
+    fi
+
+    # ── bootstrap.sh ────────────────────────────────────────────────
+    if [ ! -f "$dir/scripts/bootstrap.sh" ]; then
+        mkdir -p "$dir/scripts"
+        cat > "$dir/scripts/bootstrap.sh" << 'AGENT_EOF'
+#!/usr/bin/env bash
+# Full memory bootstrap: scan.sh → sync-to-chroma.py
+set -uo pipefail
+CHROMA_URL="${CHROMA_URL:-http://localhost:8000}"
+echo "=== Memory Bootstrap ==="
+echo "[1/2] Scanning..."
+bash .agent/scripts/scan.sh > /dev/null 2>&1
+echo "[2/2] Syncing to Chroma..."
+python3 .agent/scripts/sync-to-chroma.py --url "$CHROMA_URL"
+echo "=== Done ==="
+AGENT_EOF
+        chmod +x "$dir/scripts/bootstrap.sh"
+        wrote=$((wrote + 1))
+        echo -e "  ${GREEN}✓${NC} scripts/bootstrap.sh"
+    fi
+
     # ── install-hooks.sh ─────────────────────────────────────────────
     if [ ! -f "$dir/scripts/install-hooks.sh" ]; then
         mkdir -p "$dir/scripts"
@@ -1857,12 +2032,13 @@ AGENT_EOF
         mkdir -p "$dir/scripts"
         cat > "$dir/scripts/post-commit.sh" << 'AGENT_EOF'
 #!/usr/bin/env bash
-# Git post-commit hook: syncs memory.jsonl with changed Java files.
+# Git post-commit hook: syncs memory.jsonl with changed Java files to Chroma.
 # Installed via: bash .agent/scripts/install-hooks.sh
 set -uo pipefail
 
 AGENT_DIR=".agent"
 JSONL="$AGENT_DIR/memory.jsonl"
+CHROMA_URL="${CHROMA_URL:-http://localhost:8000}"
 
 # Skip if memory not initialised yet
 [ -f "$JSONL" ] || exit 0
@@ -1878,7 +2054,7 @@ MODIFIED=$(git diff --name-only --diff-filter=M HEAD~1 HEAD 2>/dev/null | grep '
 
 [ -z "$ADDED$DELETED$MODIFIED" ] && exit 0
 
-echo "[memory] Java files changed — syncing memory.jsonl..."
+echo "[memory] Java files changed — syncing to Chroma..."
 
 python3 "$AGENT_DIR/scripts/sync-memory.py" \
     --jsonl  "$JSONL" \
@@ -1886,7 +2062,7 @@ python3 "$AGENT_DIR/scripts/sync-memory.py" \
     --deleted  "$DELETED" \
     --modified "$MODIFIED"
 
-bash "$AGENT_DIR/scripts/rebuild.sh" 2>&1 | tail -1
+python3 "$AGENT_DIR/scripts/sync-to-chroma.py" --url "$CHROMA_URL" 2>&1 | tail -1
 AGENT_EOF
         chmod +x "$dir/scripts/post-commit.sh"
         wrote=$((wrote + 1))
@@ -2117,6 +2293,31 @@ AGENT_EOF
         chmod +x "$dir/scripts/sync-memory.py"
         wrote=$((wrote + 1))
         echo -e "  ${GREEN}✓${NC} scripts/sync-memory.py"
+    fi
+
+    # ── chroma docker-compose ────────────────────────────────────────
+    if [ ! -f "$dir/chroma/docker-compose.yml" ]; then
+        mkdir -p "$dir/chroma"
+        cat > "$dir/chroma/docker-compose.yml" << 'AGENT_EOF'
+version: "3.8"
+services:
+  chroma:
+    image: chromadb/chroma:1.5.3
+    container_name: chroma
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      ANONYMIZED_TELEMETRY: "FALSE"
+      IS_PERSISTENT: "TRUE"
+    volumes:
+      - chroma_data:/chroma/chroma
+volumes:
+  chroma_data:
+    driver: local
+AGENT_EOF
+        wrote=$((wrote + 1))
+        echo -e "  ${GREEN}✓${NC} chroma/docker-compose.yml"
     fi
 
     # ── empty memory.jsonl seed ──────────────────────────────────────
