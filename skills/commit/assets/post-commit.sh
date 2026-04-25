@@ -52,3 +52,5 @@ if [ -n "${HAS_JAVA}" ]; then
 fi
 
 python3 "$AGENT_DIR/scripts/sync-to-chroma.py" --url "$CHROMA_URL" 2>&1 | tail -1
+echo "[memory] Changes persisted in git + JSONL + Chroma — safe to compact context."
+echo "         Claude Code → /compact  |  Kiro → /compact"
