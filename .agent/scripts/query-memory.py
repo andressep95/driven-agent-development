@@ -115,8 +115,6 @@ def main():
                 where['$or'] = [{'kind': args.kind}, {'file_kind': args.kind}]
             if args.type:
                 where['type'] = args.type
-            if len(where) == 1 and ('kind' not in where and 'type' not in where):
-                where = None
 
             results = collection.query(
                 query_texts=[args.query],

@@ -33,10 +33,7 @@ def entry_to_chroma(e):
     record_type = e.get('type', 'symbol')
 
     if record_type == 'change':
-        # Unique ID: commit + file + hunk start line
         entry_id = f"change:{e.get('commit','')}:{e.get('file','')}:{e.get('lines_start', 0)}"
-
-        # Searchable document combines what changed + why
         doc = f"{e.get('change_type','')} in {e.get('file','')} [{e.get('symbol','')}]: {e.get('intent','')}"
         hunk = e.get('hunk_content', '')
         if hunk:
@@ -44,7 +41,6 @@ def entry_to_chroma(e):
         tags = e.get('tags', [])
         if tags:
             doc += f"\nTags: {', '.join(tags)}"
-
         metadata = {
             'type':        'change',
             'change_type': e.get('change_type', ''),
@@ -61,18 +57,14 @@ def entry_to_chroma(e):
             'email':       e.get('email', ''),
             'ts':          e.get('ts', ''),
         }
-
     else:
-        # symbol record (Java code analysis from scan-memory)
         entry_id = f"symbol:{e.get('file', '')}:{e.get('symbol', '')}"
         lines = e.get('lines', [0, 0])
         tags  = e.get('tags', [])
         kind  = e.get('kind', '')
-
         doc = f"{e.get('symbol', '')} ({kind}): {e.get('intent', '')}"
         if tags:
             doc += f" Tags: {', '.join(tags)}"
-
         metadata = {
             'type':        'symbol',
             'symbol':      e.get('symbol', ''),

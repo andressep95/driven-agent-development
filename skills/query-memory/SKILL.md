@@ -17,12 +17,12 @@ allowed-tools: Bash
 
 ## When to Use
 
-Prefer `query-memory` over SQLite FTS when:
+Prefer `query-memory` for semantic searches when:
 - Searching by **behavior or intent** ("find the class that handles retries")
 - The symbol name is unknown but its purpose is known
 - Keyword search returns no results or too many irrelevant ones
 
-Use SQLite FTS directly when you need exact keyword or file path matching.
+Use `--no-chroma` for fast exact keyword or file path matching directly from JSONL.
 
 ---
 

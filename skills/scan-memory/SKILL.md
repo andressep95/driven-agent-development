@@ -2,8 +2,8 @@
 name: scan-memory
 description: >
   Scans the Java project and populates .agent/memory.jsonl with symbol locations,
-  intent summaries, and tags. Ends by running rebuild.sh to produce a queryable memory.db.
-  Trigger: First-time setup, memory.db missing or empty, after major refactors.
+  intent summaries, and tags. Syncs to ChromaDB for semantic search.
+  Trigger: First-time setup, memory.jsonl missing or empty, after major refactors.
 metadata:
   version: "1.0"
   scope: [root]
@@ -19,13 +19,12 @@ allowed-tools: Read, Bash, Write
 
 Bootstraps `.agent/memory.jsonl` by scanning every Java file in `src/main/java`,
 reading each symbol's code, generating a one-sentence `intent`, assigning `tags`,
-and writing structured JSONL entries. Ends by running `rebuild.sh` to produce
-a queryable `memory.db`.
+and writing structured JSONL entries.
 
 ## When to Run
 
 - First time any dev (or agent) clones the project
-- `memory.db` is missing or returns no results
+- `memory.jsonl` is empty or returns no results
 - After a large refactor that moves or renames multiple files
 - Manually triggered: `bash .agent/scripts/scan.sh`
 
@@ -60,10 +59,10 @@ If ChromaDB is running, push memory to the vector search index:
 ```bash
 bash .agent/scripts/bootstrap.sh
 # or directly:
-python3 .agent/scripts/sync-to-chroma.py --url "${CHROMA_URL:-http://localhost:8000}"
+python3 .agent/scripts/sync-to-chroma.py --url "\${CHROMA_URL:-http://localhost:8000}"
 ```
 
-Skip this step if ChromaDB is not available — SQLite FTS remains fully functional.
+Skip this step if ChromaDB is not available — JSONL keyword search remains fully functional.
 
 ### Step 5 — Verify
 
