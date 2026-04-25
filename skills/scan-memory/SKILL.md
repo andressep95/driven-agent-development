@@ -59,7 +59,19 @@ Generate:
 bash .agent/scripts/rebuild.sh
 ```
 
-### Step 5 — Verify
+### Step 5 — Sync to Chroma (optional)
+
+If ChromaDB is running, push memory to the vector search index:
+
+```bash
+bash .agent/scripts/bootstrap.sh
+# or directly:
+python3 .agent/scripts/sync-to-chroma.py --url "${CHROMA_URL:-http://localhost:8000}"
+```
+
+Skip this step if ChromaDB is not available — SQLite FTS remains fully functional.
+
+### Step 6 — Verify
 
 ```bash
 sqlite3 .agent/memory.db \

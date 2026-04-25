@@ -377,6 +377,11 @@ description: >
 metadata:
   version: "2.0"
   type: "Skill-Driven Constraint"
+  auto_invoke:
+    - "Before any git commit"
+    - "Creating a git commit"
+    - "Stage and commit changes"
+    - "Write a commit message"
 allowed-tools: Bash
 ---
 
@@ -388,6 +393,9 @@ allowed-tools: Bash
 - **Length:** First line < 72 characters. Body wrapped at 72 characters.
 - **Confirmation:** ALWAYS show the message to the user and ask for confirmation before executing `git commit`.
 - **Isolation:** NEVER use `git push --force`.
+- **Complete History:** Stage ALL modified and untracked files by default (`git add -A`). Every change must be committed to maintain a faithful project history. Never silently leave files unstaged.
+- **Sensitive File Guard:** Before staging, scan for files that should NOT be committed (`.env`, `*.key`, `*.pem`, credentials, secrets). Warn the user if any are found and exclude them explicitly.
+- **Granularity:** If the diff spans clearly unrelated concerns (e.g., a feature change + a skill update), propose splitting into two commits. If the user confirms one commit, proceed with all changes in a single commit.
 
 ## Commitment Format
 
@@ -431,13 +439,21 @@ _Rule: If the change spans multiple scopes, use the most significant one or omit
    git status
    git diff --stat HEAD
    ```
-2. **Drafting:** Look at the 3 most recent commits to maintain project-specific style:
+2. **Sensitive file check:** Scan the unstaged list for `.env`, `*.key`, `*.pem`, `*secret*`, `*credential*`. Warn the user if any appear — exclude them before staging.
+
+3. **Granularity check:** If the diff spans clearly unrelated concerns, propose separate commits. If the user wants a single commit, proceed.
+
+4. **Drafting:** Look at the 3 most recent commits to maintain project-specific style:
    ```bash
    git log -3 --oneline
    ```
-3. **Interactive Commit:**
+5. **Interactive Commit:**
    - Present the draft to the user.
-   - Upon confirmation, stage files and commit.
+   - Upon confirmation, stage all changes and commit:
+   ```bash
+   git add -A
+   git commit -m "type(scope): description"
+   ```
 
 ## Examples
 
@@ -1043,6 +1059,102 @@ SKILL_EOF
         echo -e "  ${GREEN}✓${NC} openapi"
     fi
 
+    # ── query-memory ─────────────────────────────────────────────────
+    if [ ! -f "$dir/query-memory/SKILL.md" ]; then
+        mkdir -p "$dir/query-memory"
+        cat > "$dir/query-memory/SKILL.md" << 'SKILL_EOF'
+---
+name: query-memory
+description: >
+  Searches agent memory by semantic similarity (ChromaDB) with automatic
+  fallback to keyword search over memory.jsonl when Chroma is unavailable.
+  Trigger: Search codebase symbols by intent or behavior rather than exact name.
+metadata:
+  version: "1.0"
+  scope: [root]
+  auto_invoke:
+    - "Search codebase by intent or behavior"
+    - "Semantic search over agent memory"
+    - "Find symbols by description"
+    - "Query ChromaDB for code symbols"
+allowed-tools: Bash
+---
+
+## When to Use
+
+Prefer `query-memory` over SQLite FTS when:
+- Searching by **behavior or intent** ("find the class that handles retries")
+- The symbol name is unknown but its purpose is known
+- Keyword search returns no results or too many irrelevant ones
+
+Use SQLite FTS directly when you need exact keyword or file path matching.
+
+---
+
+## Commands
+
+```bash
+# Semantic query — uses Chroma if available, falls back to JSONL automatically
+python3 .agent/scripts/query-memory.py "handles cross-account role assumption"
+
+# Filter by kind: controller, service, repository, config, dto, domain
+python3 .agent/scripts/query-memory.py "account onboarding" --kind service
+
+# Limit results
+python3 .agent/scripts/query-memory.py "pagination helpers" --limit 5
+
+# Force JSONL-only (skip Chroma entirely)
+python3 .agent/scripts/query-memory.py "credential caching" --no-chroma
+
+# Custom Chroma URL
+python3 .agent/scripts/query-memory.py "error handling" --url http://localhost:8000
+```
+
+---
+
+## Fallback Behavior
+
+The script auto-detects Chroma availability at query time:
+
+| Chroma status | Behavior |
+|---------------|----------|
+| Running | Semantic vector search (ranked by embedding similarity) |
+| Down / not installed | Keyword search over `.agent/memory.jsonl` |
+
+No configuration needed — the fallback is transparent.
+
+---
+
+## Output Format
+
+```
+## ClassName (kind)
+   File: src/main/java/...
+   Lines: 14-120
+   Intent: One-sentence description of what it does
+   Score: 87.42%       ← similarity score (Chroma) or keyword matches (JSONL)
+```
+
+---
+
+## Memory Must Be Populated
+
+Before querying, ensure memory exists:
+
+```bash
+# Full bootstrap: scan Java files + push to Chroma
+bash .agent/scripts/bootstrap.sh
+
+# Or push existing memory.jsonl to Chroma only
+python3 .agent/scripts/sync-to-chroma.py
+```
+
+Run `scan-memory` if `memory.jsonl` is empty or missing.
+SKILL_EOF
+        wrote=$((wrote + 1))
+        echo -e "  ${GREEN}✓${NC} query-memory"
+    fi
+
     # ── skill-creator ────────────────────────────────────────────────
     if [ ! -f "$dir/skill-creator/SKILL.md" ]; then
         mkdir -p "$dir/skill-creator"
@@ -1254,7 +1366,19 @@ Generate:
 bash .agent/scripts/rebuild.sh
 ```
 
-### Step 5 — Verify
+### Step 5 — Sync to Chroma (optional)
+
+If ChromaDB is running, push memory to the vector search index:
+
+```bash
+bash .agent/scripts/bootstrap.sh
+# or directly:
+python3 .agent/scripts/sync-to-chroma.py --url "\${CHROMA_URL:-http://localhost:8000}"
+```
+
+Skip this step if ChromaDB is not available — SQLite FTS remains fully functional.
+
+### Step 6 — Verify
 
 ```bash
 sqlite3 .agent/memory.db \
@@ -1938,45 +2062,104 @@ AGENT_EOF
         mkdir -p "$dir/scripts"
         cat > "$dir/scripts/query-memory.py" << 'AGENT_EOF'
 #!/usr/bin/env python3
-import json, sys, argparse
-try:
-    import chromadb
-except ImportError:
-    print("ERROR: chromadb not installed")
-    sys.exit(1)
+import json, sys, argparse, os
+
+def search_jsonl(jsonl_path, query, kind_filter, limit):
+    if not os.path.exists(jsonl_path):
+        print(f"ERROR: {jsonl_path} not found. Run scan-memory first.")
+        sys.exit(1)
+
+    terms = [t.lower() for t in query.split()]
+    results = []
+
+    with open(jsonl_path) as f:
+        for raw in f:
+            raw = raw.strip()
+            if not raw:
+                continue
+            try:
+                e = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+
+            if e.get("type") != "symbol":
+                continue
+            if kind_filter and e.get("kind") != kind_filter:
+                continue
+
+            haystack = " ".join([
+                e.get("symbol", ""),
+                e.get("kind", ""),
+                e.get("intent", ""),
+                e.get("file", ""),
+                " ".join(e.get("tags", [])),
+            ]).lower()
+
+            score = sum(1 for t in terms if t in haystack)
+            if score > 0:
+                results.append((score, e))
+
+    results.sort(key=lambda x: x[0], reverse=True)
+    return results[:limit]
+
+def print_result(m, score_label):
+    lines = m.get("lines", [0, 0])
+    print(f"## {m.get('symbol')} ({m.get('kind')})")
+    print(f"   File: {m.get('file')}")
+    print(f"   Lines: {lines[0]}-{lines[1]}")
+    print(f"   Intent: {m.get('intent')}")
+    print(f"   Score: {score_label}")
+    print()
 
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("query", nargs="?", default="")
     p.add_argument("--url", default="http://localhost:8000")
     p.add_argument("--collection", default="codebase")
+    p.add_argument("--jsonl", default=".agent/memory.jsonl")
     p.add_argument("--kind", default="")
     p.add_argument("--limit", type=int, default=10)
     p.add_argument("--json", action="store_true")
+    p.add_argument("--no-chroma", action="store_true", help="Skip Chroma, query JSONL directly")
     args = p.parse_args()
 
     if not args.query:
-        print("Usage: query-memory.py <query> [--kind controller] [--limit 5] [--json]")
+        print("Usage: query-memory.py <query> [--kind controller] [--limit 5] [--no-chroma]")
         sys.exit(1)
 
-    client = chromadb.HttpClient(host=args.url.replace("http://", "").split(":")[0],
-                             port=args.url.split(":")[-1] if ":" in args.url else "8000")
-    collection = client.get_collection(args.collection)
+    if not args.no_chroma:
+        try:
+            import chromadb
+            host = args.url.replace("http://", "").replace("https://", "").split(":")[0]
+            port = int(args.url.split(":")[-1]) if ":" in args.url else 8000
+            client = chromadb.HttpClient(host=host, port=port)
+            client.heartbeat()
+            collection = client.get_collection(args.collection)
 
-    where_clause = {"kind": args.kind} if args.kind else None
-    results = collection.query(query_texts=[args.query], n_results=args.limit, where=where_clause)
+            where_clause = {"kind": args.kind} if args.kind else None
+            results = collection.query(
+                query_texts=[args.query],
+                n_results=args.limit,
+                where=where_clause,
+            )
 
-    for i in range(len(results["ids"][0])):
-        m = results["metadatas"][0][i]
-        dist = results["distances"][0][i] if results.get("distances") else 0
-        score = max(0, 1 - dist)
-        print(f"## {m.get('symbol')} ({m.get('kind')})")
-        print(f"   File: {m.get('file')}")
-        print(f"   Lines: {m.get('lines_start')}-{m.get('lines_end')}")
-        print(f"   Intent: {m.get('intent')}")
-        print(f"   Author: {m.get('author')} <{m.get('email')}>")
-        print(f"   Score: {score:.2%}")
-        print()
+            for i in range(len(results["ids"][0])):
+                m = results["metadatas"][0][i]
+                dist = results["distances"][0][i] if results.get("distances") else 0
+                score = max(0, 1 - dist)
+                print_result(m, f"{score:.2%}")
+            return
+
+        except Exception as e:
+            print(f"[query-memory] Chroma unavailable ({e}) — falling back to JSONL", file=sys.stderr)
+
+    hits = search_jsonl(args.jsonl, args.query, args.kind, args.limit)
+    if not hits:
+        print("No results found.")
+        return
+
+    for score, e in hits:
+        print_result(e, f"{score} keyword match(es)")
 
 if __name__ == "__main__":
     main()
@@ -2004,43 +2187,6 @@ AGENT_EOF
         chmod +x "$dir/scripts/bootstrap.sh"
         wrote=$((wrote + 1))
         echo -e "  ${GREEN}✓${NC} scripts/bootstrap.sh"
-    fi
-
-    # ── post-commit.sh (deprecated - kept for reference) ───────────────────
-    if [ ! -f "$dir/scripts/post-commit.sh" ]; then
-        mkdir -p "$dir/scripts"
-        cat > "$dir/scripts/post-commit.sh" << 'AGENT_EOF'
-#!/usr/bin/env bash
-# DEPRECATED: Use skills/commit/assets/post-commit.sh instead
-# This file is kept for backwards compatibility.
-set -uo pipefail
-
-AGENT_DIR=".agent"
-JSONL="$AGENT_DIR/memory.jsonl"
-CHROMA_URL="${CHROMA_URL:-http://localhost:8000}"
-
-[ -f "$JSONL" ] || exit 0
-! git rev-parse HEAD~1 >/dev/null 2>&1 && exit 0
-
-ADDED=$(git diff --name-only --diff-filter=A HEAD~1 HEAD 2>/dev/null | grep '\.java$' || true)
-DELETED=$(git diff --name-only --diff-filter=D HEAD~1 HEAD 2>/dev/null | grep '\.java$' || true)
-MODIFIED=$(git diff --name-only --diff-filter=M HEAD~1 HEAD 2>/dev/null | grep '\.java$' || true)
-
-[ -z "$ADDED$DELETED$MODIFIED" ] && exit 0
-
-echo "[memory] Java files changed — syncing to Chroma..."
-
-python3 "$AGENT_DIR/scripts/sync-memory.py" \
-    --jsonl  "$JSONL" \
-    --added    "$ADDED" \
-    --deleted  "$DELETED" \
-    --modified "$MODIFIED"
-
-python3 "$AGENT_DIR/scripts/sync-to-chroma.py" --url "$CHROMA_URL" 2>&1 | tail -1
-AGENT_EOF
-        chmod +x "$dir/scripts/post-commit.sh"
-        wrote=$((wrote + 1))
-        echo -e "  ${GREEN}✓${NC} scripts/post-commit.sh (deprecated)"
     fi
 
     # ── sync-memory.py ───────────────────────────────────────────────

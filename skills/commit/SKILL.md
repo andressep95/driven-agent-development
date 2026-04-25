@@ -6,6 +6,11 @@ description: >
 metadata:
   version: "2.0"
   type: "Skill-Driven Constraint"
+  auto_invoke:
+    - "Before any git commit"
+    - "Creating a git commit"
+    - "Stage and commit changes"
+    - "Write a commit message"
 allowed-tools: Bash
 ---
 
@@ -17,6 +22,9 @@ allowed-tools: Bash
 - **Length:** First line < 72 characters. Body wrapped at 72 characters.
 - **Confirmation:** ALWAYS show the message to the user and ask for confirmation before executing `git commit`.
 - **Isolation:** NEVER use `git push --force`.
+- **Complete History:** Stage ALL modified and untracked files by default (`git add -A`). Every change must be committed to maintain a faithful project history. Never silently leave files unstaged.
+- **Sensitive File Guard:** Before staging, scan for files that should NOT be committed (`.env`, `*.key`, `*.pem`, credentials, secrets). Warn the user if any are found and exclude them explicitly.
+- **Granularity:** If the diff spans clearly unrelated concerns (e.g., a feature change + a skill update), propose splitting into two commits. If the user confirms one commit, proceed with all changes in a single commit.
 
 ## Commitment Format
 
@@ -60,13 +68,21 @@ _Rule: If the change spans multiple scopes, use the most significant one or omit
    git status
    git diff --stat HEAD
    ```
-2. **Drafting:** Look at the 3 most recent commits to maintain project-specific style:
+2. **Sensitive file check:** Scan the unstaged list for `.env`, `*.key`, `*.pem`, `*secret*`, `*credential*`. Warn the user if any appear — exclude them before staging.
+
+3. **Granularity check:** If the diff spans clearly unrelated concerns, propose separate commits. If the user wants a single commit, proceed.
+
+4. **Drafting:** Look at the 3 most recent commits to maintain project-specific style:
    ```bash
    git log -3 --oneline
    ```
-3. **Interactive Commit:**
+5. **Interactive Commit:**
    - Present the draft to the user.
-   - Upon confirmation, stage files and commit.
+   - Upon confirmation, stage all changes and commit:
+   ```bash
+   git add -A
+   git commit -m "type(scope): description"
+   ```
 
 ## Examples
 
