@@ -493,13 +493,13 @@ CHROMA_URL="${CHROMA_URL:-http://localhost:8000}"
 # All tracked file types for hunk tracking
 ALL_ADDED=$(git diff --name-only --diff-filter=A HEAD~1 HEAD 2>/dev/null \
     | grep -E '\.(java|md|sh|py|yaml|yml|sql|json)$' \
-    | grep -v 'memory\.jsonl\|memory\.db' || true)
+    | grep -v 'memory\.jsonl' || true)
 ALL_DELETED=$(git diff --name-only --diff-filter=D HEAD~1 HEAD 2>/dev/null \
     | grep -E '\.(java|md|sh|py|yaml|yml|sql|json)$' \
-    | grep -v 'memory\.jsonl\|memory\.db' || true)
+    | grep -v 'memory\.jsonl' || true)
 ALL_MODIFIED=$(git diff --name-only --diff-filter=M HEAD~1 HEAD 2>/dev/null \
     | grep -E '\.(java|md|sh|py|yaml|yml|sql|json)$' \
-    | grep -v 'memory\.jsonl\|memory\.db' || true)
+    | grep -v 'memory\.jsonl' || true)
 
 # Java-only for symbol location tracking
 JAVA_ADDED=$(echo "$ALL_ADDED"    | grep '\.java$' || true)
@@ -1338,14 +1338,16 @@ SKILL_EOF
 ---
 name: scan-memory
 description: >
-  Scans the Java project and populates .agent/memory.jsonl with symbol locations,
-  intent summaries, and tags. Syncs to ChromaDB for semantic search.
-  Trigger: First-time setup, memory.jsonl missing or empty, after major refactors.
+  Scans the full git history and optionally Java symbols to populate
+  .agent/memory.jsonl with change records for every tracked file type
+  (.java, .md, .sh, .py, .yaml, .yml, .sql, .json). Syncs to ChromaDB
+  for semantic search. Trigger: First-time setup, memory.jsonl missing
+  or empty, after major refactors.
 metadata:
-  version: "1.0"
+  version: "2.0"
   scope: [root]
   auto_invoke:
-    - "memory.db is empty or missing"
+    - "memory.jsonl is empty or missing"
     - "First-time project setup"
     - "After a major refactor affecting multiple files"
     - "Bootstrap agent memory"
@@ -1354,48 +1356,58 @@ allowed-tools: Read, Bash, Write
 
 ## Purpose
 
-Bootstraps `.agent/memory.jsonl` by scanning every Java file in `src/main/java`,
-reading each symbol's code, generating a one-sentence `intent`, assigning `tags`,
-and writing structured JSONL entries.
+Bootstraps `.agent/memory.jsonl` by replaying the full git history for
+**all tracked file types** — not just Java. Each diff hunk becomes a
+`change` record with intent, tags, and author metadata. Optionally also
+scans Java symbol definitions for `symbol` records.
+
+**Tracked extensions:** `.java` `.md` `.sh` `.py` `.yaml` `.yml` `.sql` `.json`
 
 ## When to Run
 
 - First time any dev (or agent) clones the project
 - `memory.jsonl` is empty or returns no results
 - After a large refactor that moves or renames multiple files
-- Manually triggered: `bash .agent/scripts/scan.sh`
+- When onboarding a non-Java project (Python, TypeScript, Go, etc.)
+- Manually triggered: `bash .agent/scripts/bootstrap.sh`
 
 ---
 
 ## Step-by-Step Procedure
 
-### Step 1 — Run the mechanical scan
+### Step 1 — Replay full git history (all file types)
+
+```bash
+bash .agent/scripts/scan-history.sh
+```
+
+This iterates every commit from the beginning of the repo and writes
+one `change` record per hunk for each tracked file. It is idempotent —
+records already in `memory.jsonl` (matched by commit + file + hunk
+header) are skipped.
+
+### Step 2 — (Optional) Scan Java symbols
+
+Only needed when the project has a `src/main/java` tree:
 
 ```bash
 bash .agent/scripts/scan.sh
 ```
 
-### Step 2 — For each symbol, read and summarize
+### Step 3 — (Shortcut) Run both steps at once
 
-Generate:
-- `intent` — one sentence: what does it do?
-- `tags` — JSON array from: controller, service, repository, domain, config, dto,
-  util, aws, sts, s3, account, discovery, resource, shared, auth, validation,
-  error-handling, pagination, caching, credentials
-
-### Step 3 — Write JSONL entries to `.agent/memory.jsonl`
-
-```jsonl
-{"type":"symbol","file":"path/to/File.java","symbol":"ClassName","kind":"controller","lines":[14,120],"intent":"one sentence","tags":["controller","account"],"commit":"GIT_HASH","ts":"YYYY-MM-DD"}
+```bash
+bash .agent/scripts/bootstrap.sh
 ```
+
+`bootstrap.sh` runs `scan-history.sh` → `scan.sh` (if Java exists) →
+`sync-to-chroma.py` in sequence.
 
 ### Step 4 — Sync to Chroma (optional)
 
 If ChromaDB is running, push memory to the vector search index:
 
 ```bash
-bash .agent/scripts/bootstrap.sh
-# or directly:
 python3 .agent/scripts/sync-to-chroma.py --url "\${CHROMA_URL:-http://localhost:8000}"
 ```
 
@@ -1404,8 +1416,18 @@ Skip this step if ChromaDB is not available — JSONL keyword search remains ful
 ### Step 5 — Verify
 
 ```bash
+python3 .agent/scripts/query-memory.py "KEYWORDS" --type change --no-chroma
 python3 .agent/scripts/query-memory.py "account" --type symbol --no-chroma
 ```
+
+---
+
+## Record Types
+
+| type | Produced by | Contains |
+|------|-------------|----------|
+| \`change\` | \`scan-history.sh\` / post-commit hook | git diff hunks for any file type |
+| \`symbol\` | \`scan.sh\` (Java only) | class/method definitions with line ranges |
 
 ---
 
@@ -1419,7 +1441,7 @@ python3 .agent/scripts/query-memory.py "KEYWORDS"
 python3 .agent/scripts/query-memory.py "KEYWORDS" --no-chroma
 
 # Filter by type
-python3 .agent/scripts/query-memory.py "KEYWORDS" --type symbol   # Java code
+python3 .agent/scripts/query-memory.py "KEYWORDS" --type symbol   # Java symbols
 python3 .agent/scripts/query-memory.py "KEYWORDS" --type change   # git history
 ```
 
@@ -3540,6 +3562,57 @@ AGENT_EOF
         echo -e "  ${GREEN}✓${NC} scripts/scan.sh"
     fi
 
+    # ── scan-history.sh ───────────────────────────────────────────
+    if [ ! -f "$dir/scripts/scan-history.sh" ]; then
+        mkdir -p "$dir/scripts"
+        cat > "$dir/scripts/scan-history.sh" << 'AGENT_EOF'
+#!/usr/bin/env bash
+# Replays full git history into memory.jsonl for ALL tracked file types.
+# Each commit is diffed and its hunks appended as change records.
+# Idempotent: duplicate (commit, file, hunk) entries are skipped.
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+cd "$ROOT"
+
+JSONL=".agent/memory.jsonl"
+EMPTY_TREE="4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+
+total=$(git log --oneline | wc -l | tr -d ' ')
+echo "Replaying $total commits into $JSONL..."
+
+count=0
+while IFS=' ' read -r full_hash short_hash; do
+    count=$((count + 1))
+    printf "  [%d/%d] %s\r" "$count" "$total" "$short_hash"
+
+    # Use empty tree for the initial commit (no parent)
+    parent=$(git rev-parse --verify "${full_hash}~1" 2>/dev/null || echo "$EMPTY_TREE")
+
+    added=$(git diff --diff-filter=A --name-only "$parent" "$full_hash" 2>/dev/null || true)
+    deleted=$(git diff --diff-filter=D --name-only "$parent" "$full_hash" 2>/dev/null || true)
+    modified=$(git diff --diff-filter=M --name-only "$parent" "$full_hash" 2>/dev/null || true)
+
+    python3 "$SCRIPT_DIR/sync-hunks.py" \
+        --jsonl "$JSONL" \
+        --from-commit "$parent" \
+        --to-commit "$full_hash" \
+        --added "$added" \
+        --deleted "$deleted" \
+        --modified "$modified" \
+        --all-files \
+        2>/dev/null || true
+done < <(git log --reverse --format="%H %h")
+
+echo ""
+echo "Done. $count commits processed."
+AGENT_EOF
+        chmod +x "$dir/scripts/scan-history.sh"
+        wrote=$((wrote + 1))
+        echo -e "  ${GREEN}✓${NC} scripts/scan-history.sh"
+    fi
+
     # ── sync-hunks.py ─────────────────────────────────────────────
     if [ ! -f "$dir/scripts/sync-hunks.py" ]; then
         mkdir -p "$dir/scripts"
@@ -3554,47 +3627,42 @@ import json, sys, os, re, subprocess, argparse
 from datetime import date
 
 TRACKED_EXTENSIONS = {'.java', '.md', '.sh', '.py', '.yaml', '.yml', '.sql', '.json'}
-SKIP_FILES = {'memory.jsonl', 'memory.db'}
+SKIP_FILES = {'memory.jsonl'}
 
 
 # ── git helpers ───────────────────────────────────────────────────────────────
 
-def git_author():
+def git_commit_info(commit_ref):
+    """Return (short_hash, message, date, author, email) for a specific commit ref."""
     try:
-        name  = subprocess.run(['git', 'config', 'user.name'],  capture_output=True, text=True).stdout.strip()
-        email = subprocess.run(['git', 'config', 'user.email'], capture_output=True, text=True).stdout.strip()
-        return name or 'unknown', email or 'unknown'
-    except Exception:
-        return 'unknown', 'unknown'
+        def log(fmt, *extra):
+            return subprocess.run(
+                ['git', 'log', '-1', fmt] + list(extra) + [commit_ref],
+                capture_output=True, text=True
+            ).stdout.strip()
 
-def git_commit_hash():
-    try:
-        return subprocess.run(['git', 'log', '-1', '--format=%h'],
-                              capture_output=True, text=True).stdout.strip()
-    except Exception:
-        return 'unknown'
+        short_hash = subprocess.run(
+            ['git', 'rev-parse', '--short', commit_ref],
+            capture_output=True, text=True
+        ).stdout.strip() or 'unknown'
 
-def git_commit_message():
-    try:
-        return subprocess.run(['git', 'log', '-1', '--format=%s'],
-                              capture_output=True, text=True).stdout.strip()
+        return (
+            short_hash,
+            log('--format=%s'),
+            log('--format=%ad', '--date=format:%Y-%m-%d') or str(date.today()),
+            log('--format=%an') or 'unknown',
+            log('--format=%ae') or 'unknown',
+        )
     except Exception:
-        return ''
-
-def git_commit_date():
-    try:
-        return subprocess.run(['git', 'log', '-1', '--format=%ad', '--date=format:%Y-%m-%d'],
-                              capture_output=True, text=True).stdout.strip()
-    except Exception:
-        return str(date.today())
+        return 'unknown', '', str(date.today()), 'unknown', 'unknown'
 
 
 # ── diff parsing ──────────────────────────────────────────────────────────────
 
-def parse_diff_hunks(filepath):
-    """Parse git diff --unified=0 into structured hunk objects."""
+def parse_diff_hunks(filepath, from_commit, to_commit):
+    """Parse git diff --unified=0 between two commits into structured hunk objects."""
     r = subprocess.run(
-        ['git', 'diff', '--unified=0', 'HEAD~1', 'HEAD', '--', filepath],
+        ['git', 'diff', '--unified=0', from_commit, to_commit, '--', filepath],
         capture_output=True, text=True
     )
     if not r.stdout:
@@ -3646,12 +3714,12 @@ def parse_diff_hunks(filepath):
 def file_kind(filepath):
     ext      = os.path.splitext(filepath)[1].lower()
     basename = os.path.basename(filepath)
-    if ext == '.java':                      return 'java'
-    if basename == 'SKILL.md':             return 'skill'
-    if basename in ('CLAUDE.md',):         return 'config'
-    if ext in ('.yaml', '.yml', '.sql', '.json'): return 'config'
-    if ext in ('.sh', '.py'):              return 'script'
-    if ext == '.md':                       return 'doc'
+    if ext == '.java':                                    return 'java'
+    if basename == 'SKILL.md':                           return 'skill'
+    if basename in ('CLAUDE.md',):                       return 'config'
+    if ext in ('.yaml', '.yml', '.sql', '.json'):        return 'config'
+    if ext in ('.sh', '.py'):                            return 'script'
+    if ext == '.md':                                     return 'doc'
     return 'file'
 
 
@@ -3672,7 +3740,6 @@ def extract_symbol(filepath, hunk):
     if ext == '.java':
         return os.path.splitext(basename)[0]
 
-    # Try to find a meaningful identifier in the changed lines
     candidates = hunk.get('added') or hunk.get('removed') or []
     for line in candidates:
         if line.startswith('#') and not line.startswith('#!'):
@@ -3704,9 +3771,13 @@ def derive_tags(filepath, change_type, commit_msg):
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
-def should_track(filepath):
+def should_track(filepath, all_files=False):
+    if os.path.basename(filepath) in SKIP_FILES:
+        return False
+    if all_files:
+        return True
     ext = os.path.splitext(filepath)[1].lower()
-    return ext in TRACKED_EXTENSIONS and os.path.basename(filepath) not in SKIP_FILES
+    return ext in TRACKED_EXTENSIONS
 
 
 def split_files(raw):
@@ -3732,75 +3803,95 @@ def load_jsonl(path):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument('--jsonl',    required=True)
-    p.add_argument('--added',    default='')
-    p.add_argument('--deleted',  default='')
-    p.add_argument('--modified', default='')
+    p.add_argument('--jsonl',        required=True)
+    p.add_argument('--added',        default='')
+    p.add_argument('--deleted',      default='')
+    p.add_argument('--modified',     default='')
+    p.add_argument('--from-commit',  default='HEAD~1',
+                   help='Base commit for diff (default: HEAD~1)')
+    p.add_argument('--to-commit',    default='HEAD',
+                   help='Target commit for diff (default: HEAD)')
+    p.add_argument('--all-files',    action='store_true',
+                   help='Track every file type, not just TRACKED_EXTENSIONS')
     args = p.parse_args()
 
-    added    = [f for f in split_files(args.added)    if should_track(f)]
-    deleted  = [f for f in split_files(args.deleted)  if should_track(f)]
-    modified = [f for f in split_files(args.modified) if should_track(f)]
+    added    = [f for f in split_files(args.added)    if should_track(f, args.all_files)]
+    deleted  = [f for f in split_files(args.deleted)  if should_track(f, args.all_files)]
+    modified = [f for f in split_files(args.modified) if should_track(f, args.all_files)]
 
     if not (added or deleted or modified):
         return
 
-    author, email = git_author()
-    commit        = git_commit_hash()
-    commit_msg    = git_commit_message()
-    ts            = git_commit_date()
+    commit, commit_msg, ts, author, email = git_commit_info(args.to_commit)
 
     existing = load_jsonl(args.jsonl)
+
+    # Dedup: skip records already tracked for this (commit, file, hunk_header)
+    existing_keys = {
+        (e.get('commit'), e.get('file'), e.get('hunk_header'))
+        for e in existing
+        if e.get('type') == 'change'
+    }
+
     new_records = []
     stats = {'files': 0, 'hunks': 0}
 
     for filepath in added + modified:
-        hunks = parse_diff_hunks(filepath)
+        hunks = parse_diff_hunks(filepath, args.from_commit, args.to_commit)
         if not hunks:
             continue
         stats['files'] += 1
         kind = file_kind(filepath)
         for hunk in hunks:
+            key = (commit, filepath, hunk['hunk_header'])
+            if key in existing_keys:
+                continue
             new_records.append({
-                'type':        'change',
-                'change_type': hunk['change_type'],
-                'file':        filepath,
-                'file_kind':   kind,
-                'symbol':      extract_symbol(filepath, hunk),
-                'hunk_header': hunk['hunk_header'],
+                'type':         'change',
+                'change_type':  hunk['change_type'],
+                'file':         filepath,
+                'file_kind':    kind,
+                'symbol':       extract_symbol(filepath, hunk),
+                'hunk_header':  hunk['hunk_header'],
                 'hunk_content': hunk['hunk_content'].strip(),
-                'lines_start': hunk['lines_start'],
-                'lines_end':   hunk['lines_end'],
-                'lines_delta': hunk['lines_delta'],
-                'intent':      commit_msg,
-                'tags':        derive_tags(filepath, hunk['change_type'], commit_msg),
-                'commit':      commit,
-                'author':      author,
-                'email':       email,
-                'ts':          ts,
+                'lines_start':  hunk['lines_start'],
+                'lines_end':    hunk['lines_end'],
+                'lines_delta':  hunk['lines_delta'],
+                'intent':       commit_msg,
+                'tags':         derive_tags(filepath, hunk['change_type'], commit_msg),
+                'commit':       commit,
+                'author':       author,
+                'email':        email,
+                'ts':           ts,
             })
             stats['hunks'] += 1
 
     for filepath in deleted:
+        key = (commit, filepath, '')
+        if key in existing_keys:
+            continue
         new_records.append({
-            'type':        'change',
-            'change_type': 'deletion',
-            'file':        filepath,
-            'file_kind':   file_kind(filepath),
-            'symbol':      os.path.basename(filepath),
-            'hunk_header': '',
+            'type':         'change',
+            'change_type':  'deletion',
+            'file':         filepath,
+            'file_kind':    file_kind(filepath),
+            'symbol':       os.path.basename(filepath),
+            'hunk_header':  '',
             'hunk_content': '',
-            'lines_start': 0,
-            'lines_end':   0,
-            'lines_delta': 0,
-            'intent':      commit_msg,
-            'tags':        derive_tags(filepath, 'deletion', commit_msg),
-            'commit':      commit,
-            'author':      author,
-            'email':       email,
-            'ts':          ts,
+            'lines_start':  0,
+            'lines_end':    0,
+            'lines_delta':  0,
+            'intent':       commit_msg,
+            'tags':         derive_tags(filepath, 'deletion', commit_msg),
+            'commit':       commit,
+            'author':       author,
+            'email':        email,
+            'ts':           ts,
         })
         stats['hunks'] += 1
+
+    if not new_records:
+        return
 
     # Append only — history is never rewritten
     with open(args.jsonl, 'w') as f:
@@ -4109,7 +4200,7 @@ AGENT_EOF
         mkdir -p "$dir/scripts"
         cat > "$dir/scripts/bootstrap.sh" << 'AGENT_EOF'
 #!/usr/bin/env bash
-# Full memory bootstrap: scan Java symbols → push everything to Chroma.
+# Full memory bootstrap: scan all git history + Java symbols → push to Chroma.
 # Run from anywhere — script resolves the project root automatically.
 set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -4117,10 +4208,16 @@ ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$ROOT"
 CHROMA_URL="${CHROMA_URL:-http://localhost:8000}"
 echo "=== Memory Bootstrap ==="
-echo "[1/2] Scanning Java symbols..."
-bash .agent/scripts/scan.sh > /dev/null 2>&1
-echo "[2/2] Syncing to Chroma..."
-python3 .agent/scripts/sync-to-chroma.py --url "$CHROMA_URL"
+echo "[1/3] Replaying git history for all tracked file types..."
+bash "$SCRIPT_DIR/scan-history.sh"
+echo "[2/3] Scanning Java symbols..."
+if [ -d "src/main/java" ]; then
+    bash "$SCRIPT_DIR/scan.sh" > /dev/null 2>&1
+else
+    echo "  (no src/main/java — skipping Java symbol scan)"
+fi
+echo "[3/3] Syncing to Chroma..."
+python3 "$SCRIPT_DIR/sync-to-chroma.py" --url "$CHROMA_URL"
 echo "=== Done ==="
 AGENT_EOF
         chmod +x "$dir/scripts/bootstrap.sh"

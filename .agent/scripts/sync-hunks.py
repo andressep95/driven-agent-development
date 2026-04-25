@@ -13,42 +13,37 @@ SKIP_FILES = {'memory.jsonl', 'memory.db'}
 
 # ── git helpers ───────────────────────────────────────────────────────────────
 
-def git_author():
+def git_commit_info(commit_ref):
+    """Return (short_hash, message, date, author, email) for a specific commit ref."""
     try:
-        name  = subprocess.run(['git', 'config', 'user.name'],  capture_output=True, text=True).stdout.strip()
-        email = subprocess.run(['git', 'config', 'user.email'], capture_output=True, text=True).stdout.strip()
-        return name or 'unknown', email or 'unknown'
-    except Exception:
-        return 'unknown', 'unknown'
+        def log(fmt, *extra):
+            return subprocess.run(
+                ['git', 'log', '-1', fmt] + list(extra) + [commit_ref],
+                capture_output=True, text=True
+            ).stdout.strip()
 
-def git_commit_hash():
-    try:
-        return subprocess.run(['git', 'log', '-1', '--format=%h'],
-                              capture_output=True, text=True).stdout.strip()
-    except Exception:
-        return 'unknown'
+        short_hash = subprocess.run(
+            ['git', 'rev-parse', '--short', commit_ref],
+            capture_output=True, text=True
+        ).stdout.strip() or 'unknown'
 
-def git_commit_message():
-    try:
-        return subprocess.run(['git', 'log', '-1', '--format=%s'],
-                              capture_output=True, text=True).stdout.strip()
+        return (
+            short_hash,
+            log('--format=%s'),
+            log('--format=%ad', '--date=format:%Y-%m-%d') or str(date.today()),
+            log('--format=%an') or 'unknown',
+            log('--format=%ae') or 'unknown',
+        )
     except Exception:
-        return ''
-
-def git_commit_date():
-    try:
-        return subprocess.run(['git', 'log', '-1', '--format=%ad', '--date=format:%Y-%m-%d'],
-                              capture_output=True, text=True).stdout.strip()
-    except Exception:
-        return str(date.today())
+        return 'unknown', '', str(date.today()), 'unknown', 'unknown'
 
 
 # ── diff parsing ──────────────────────────────────────────────────────────────
 
-def parse_diff_hunks(filepath):
-    """Parse git diff --unified=0 into structured hunk objects."""
+def parse_diff_hunks(filepath, from_commit, to_commit):
+    """Parse git diff --unified=0 between two commits into structured hunk objects."""
     r = subprocess.run(
-        ['git', 'diff', '--unified=0', 'HEAD~1', 'HEAD', '--', filepath],
+        ['git', 'diff', '--unified=0', from_commit, to_commit, '--', filepath],
         capture_output=True, text=True
     )
     if not r.stdout:
@@ -100,12 +95,12 @@ def parse_diff_hunks(filepath):
 def file_kind(filepath):
     ext      = os.path.splitext(filepath)[1].lower()
     basename = os.path.basename(filepath)
-    if ext == '.java':                      return 'java'
-    if basename == 'SKILL.md':             return 'skill'
-    if basename in ('CLAUDE.md',):         return 'config'
-    if ext in ('.yaml', '.yml', '.sql', '.json'): return 'config'
-    if ext in ('.sh', '.py'):              return 'script'
-    if ext == '.md':                       return 'doc'
+    if ext == '.java':                                    return 'java'
+    if basename == 'SKILL.md':                           return 'skill'
+    if basename in ('CLAUDE.md',):                       return 'config'
+    if ext in ('.yaml', '.yml', '.sql', '.json'):        return 'config'
+    if ext in ('.sh', '.py'):                            return 'script'
+    if ext == '.md':                                     return 'doc'
     return 'file'
 
 
@@ -126,7 +121,6 @@ def extract_symbol(filepath, hunk):
     if ext == '.java':
         return os.path.splitext(basename)[0]
 
-    # Try to find a meaningful identifier in the changed lines
     candidates = hunk.get('added') or hunk.get('removed') or []
     for line in candidates:
         if line.startswith('#') and not line.startswith('#!'):
@@ -158,9 +152,13 @@ def derive_tags(filepath, change_type, commit_msg):
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
-def should_track(filepath):
+def should_track(filepath, all_files=False):
+    if os.path.basename(filepath) in SKIP_FILES:
+        return False
+    if all_files:
+        return True
     ext = os.path.splitext(filepath)[1].lower()
-    return ext in TRACKED_EXTENSIONS and os.path.basename(filepath) not in SKIP_FILES
+    return ext in TRACKED_EXTENSIONS
 
 
 def split_files(raw):
@@ -186,75 +184,95 @@ def load_jsonl(path):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument('--jsonl',    required=True)
-    p.add_argument('--added',    default='')
-    p.add_argument('--deleted',  default='')
-    p.add_argument('--modified', default='')
+    p.add_argument('--jsonl',        required=True)
+    p.add_argument('--added',        default='')
+    p.add_argument('--deleted',      default='')
+    p.add_argument('--modified',     default='')
+    p.add_argument('--from-commit',  default='HEAD~1',
+                   help='Base commit for diff (default: HEAD~1)')
+    p.add_argument('--to-commit',    default='HEAD',
+                   help='Target commit for diff (default: HEAD)')
+    p.add_argument('--all-files',    action='store_true',
+                   help='Track every file type, not just TRACKED_EXTENSIONS')
     args = p.parse_args()
 
-    added    = [f for f in split_files(args.added)    if should_track(f)]
-    deleted  = [f for f in split_files(args.deleted)  if should_track(f)]
-    modified = [f for f in split_files(args.modified) if should_track(f)]
+    added    = [f for f in split_files(args.added)    if should_track(f, args.all_files)]
+    deleted  = [f for f in split_files(args.deleted)  if should_track(f, args.all_files)]
+    modified = [f for f in split_files(args.modified) if should_track(f, args.all_files)]
 
     if not (added or deleted or modified):
         return
 
-    author, email = git_author()
-    commit        = git_commit_hash()
-    commit_msg    = git_commit_message()
-    ts            = git_commit_date()
+    commit, commit_msg, ts, author, email = git_commit_info(args.to_commit)
 
     existing = load_jsonl(args.jsonl)
+
+    # Dedup: skip records already tracked for this (commit, file, hunk_header)
+    existing_keys = {
+        (e.get('commit'), e.get('file'), e.get('hunk_header'))
+        for e in existing
+        if e.get('type') == 'change'
+    }
+
     new_records = []
     stats = {'files': 0, 'hunks': 0}
 
     for filepath in added + modified:
-        hunks = parse_diff_hunks(filepath)
+        hunks = parse_diff_hunks(filepath, args.from_commit, args.to_commit)
         if not hunks:
             continue
         stats['files'] += 1
         kind = file_kind(filepath)
         for hunk in hunks:
+            key = (commit, filepath, hunk['hunk_header'])
+            if key in existing_keys:
+                continue
             new_records.append({
-                'type':        'change',
-                'change_type': hunk['change_type'],
-                'file':        filepath,
-                'file_kind':   kind,
-                'symbol':      extract_symbol(filepath, hunk),
-                'hunk_header': hunk['hunk_header'],
+                'type':         'change',
+                'change_type':  hunk['change_type'],
+                'file':         filepath,
+                'file_kind':    kind,
+                'symbol':       extract_symbol(filepath, hunk),
+                'hunk_header':  hunk['hunk_header'],
                 'hunk_content': hunk['hunk_content'].strip(),
-                'lines_start': hunk['lines_start'],
-                'lines_end':   hunk['lines_end'],
-                'lines_delta': hunk['lines_delta'],
-                'intent':      commit_msg,
-                'tags':        derive_tags(filepath, hunk['change_type'], commit_msg),
-                'commit':      commit,
-                'author':      author,
-                'email':       email,
-                'ts':          ts,
+                'lines_start':  hunk['lines_start'],
+                'lines_end':    hunk['lines_end'],
+                'lines_delta':  hunk['lines_delta'],
+                'intent':       commit_msg,
+                'tags':         derive_tags(filepath, hunk['change_type'], commit_msg),
+                'commit':       commit,
+                'author':       author,
+                'email':        email,
+                'ts':           ts,
             })
             stats['hunks'] += 1
 
     for filepath in deleted:
+        key = (commit, filepath, '')
+        if key in existing_keys:
+            continue
         new_records.append({
-            'type':        'change',
-            'change_type': 'deletion',
-            'file':        filepath,
-            'file_kind':   file_kind(filepath),
-            'symbol':      os.path.basename(filepath),
-            'hunk_header': '',
+            'type':         'change',
+            'change_type':  'deletion',
+            'file':         filepath,
+            'file_kind':    file_kind(filepath),
+            'symbol':       os.path.basename(filepath),
+            'hunk_header':  '',
             'hunk_content': '',
-            'lines_start': 0,
-            'lines_end':   0,
-            'lines_delta': 0,
-            'intent':      commit_msg,
-            'tags':        derive_tags(filepath, 'deletion', commit_msg),
-            'commit':      commit,
-            'author':      author,
-            'email':       email,
-            'ts':          ts,
+            'lines_start':  0,
+            'lines_end':    0,
+            'lines_delta':  0,
+            'intent':       commit_msg,
+            'tags':         derive_tags(filepath, 'deletion', commit_msg),
+            'commit':       commit,
+            'author':       author,
+            'email':        email,
+            'ts':           ts,
         })
         stats['hunks'] += 1
+
+    if not new_records:
+        return
 
     # Append only — history is never rewritten
     with open(args.jsonl, 'w') as f:

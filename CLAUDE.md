@@ -30,7 +30,7 @@ You are a **Skill-Driven Agent**. Logic improvisation is a system failure. Every
 | `find-skills` | Helps users discover and install agent skills when they ask questions like "how do I do X", "find a skill for X", "is there a skill that can...", or express interest in extending capabilities. This skill should be used when the user is looking for functionality that might exist as an installable skill. | [SKILL.md](skills/find-skills/SKILL.md) |
 | `openapi` | Keeps api/openapi.yaml in sync with the Spring controllers in src/main/java. Trigger: After adding, modifying, or deleting any HTTP endpoint or changing a request/response schema. | [SKILL.md](skills/openapi/SKILL.md) |
 | `query-memory` | Searches agent memory by semantic similarity (ChromaDB) with automatic fallback to keyword search over memory.jsonl when Chroma is unavailable. Trigger: Search codebase symbols by intent or behavior rather than exact name. | [SKILL.md](skills/query-memory/SKILL.md) |
-| `scan-memory` | Scans the Java project and populates .agent/memory.jsonl with symbol locations, intent summaries, and tags. Syncs to ChromaDB for semantic search. Trigger: First-time setup, memory.jsonl missing or empty, after major refactors. | [SKILL.md](skills/scan-memory/SKILL.md) |
+| `scan-memory` | Scans the full git history and optionally Java symbols to populate .agent/memory.jsonl with change records for every tracked file type (.java, .md, .sh, .py, .yaml, .yml, .sql, .json). Syncs to ChromaDB for semantic search. Trigger: First-time setup, memory.jsonl missing or empty, after major refactors. | [SKILL.md](skills/scan-memory/SKILL.md) |
 | `skill-creator` | Creates new AI agent skills following the project skill spec. Trigger: When user asks to create a new skill, add agent instructions, or document patterns for AI reuse. | [SKILL.md](skills/skill-creator/SKILL.md) |
 | `skill-sync` | Keeps the Available Skills and Auto-Invoke Skills tables in sync with skill metadata after any skill is created or modified. Detects CLAUDE.md and .kiro/steering/project-rules.md by file existence and updates both. Trigger: After creating or modifying any SKILL.md file. | [SKILL.md](skills/skill-sync/SKILL.md) |
 
@@ -82,7 +82,7 @@ When performing these actions, ALWAYS load the corresponding skill FIRST:
 | create code-level endpoint doc | `endpoint-trace` |
 | document endpoint code trace | `endpoint-trace` |
 | map endpoint call chain | `endpoint-trace` |
-| memory.db is empty or missing | `scan-memory` |
+| memory.jsonl is empty or missing | `scan-memory` |
 | trace endpoint dependencies | `endpoint-trace` |
 
 ## Architecture Decision Records
