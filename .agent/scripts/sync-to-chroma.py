@@ -88,6 +88,8 @@ def main():
     p.add_argument('--jsonl',      default='.agent/memory.jsonl')
     p.add_argument('--url',        default='http://localhost:8000')
     p.add_argument('--collection', default='codebase')
+    p.add_argument('--rebuild',    action='store_true',
+                   help='Drop and recreate the collection before syncing (full rebuild)')
     args = p.parse_args()
 
     entries = load_jsonl(args.jsonl)
@@ -97,7 +99,15 @@ def main():
 
     host = args.url.replace('http://', '').replace('https://', '').split(':')[0]
     port = int(args.url.split(':')[-1]) if ':' in args.url else 8000
-    client     = chromadb.HttpClient(host=host, port=port)
+    client = chromadb.HttpClient(host=host, port=port)
+
+    if args.rebuild:
+        try:
+            client.delete_collection(args.collection)
+            print(f"Dropped collection '{args.collection}'")
+        except Exception:
+            pass
+
     collection = client.get_or_create_collection(args.collection)
 
     ids, documents, metadatas = [], [], []
