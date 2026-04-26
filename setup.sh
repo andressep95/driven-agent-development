@@ -532,6 +532,22 @@ fi
 python3 "$AGENT_DIR/scripts/sync-to-chroma.py" --url "$CHROMA_URL" 2>&1 | tail -1
 echo "[memory] Changes persisted in git + JSONL + Chroma — safe to compact context."
 echo "         Claude Code → /compact  |  Kiro → /compact"
+
+# Pass 3 — auto-regenerate CHANGELOG.md for notable commit types
+# Skips chore(changelog): commits to prevent infinite loop
+COMMIT_MSG=$(git log -1 --format=%s)
+COMMIT_TYPE=$(echo "$COMMIT_MSG" | grep -oE '^(feat|fix|refactor|perf|sec)' || true)
+IS_CHGLOG=$(echo "$COMMIT_MSG" | grep -qE '^chore(\(changelog\))?:.*changelog' && echo 1 || true)
+
+if [ -n "$COMMIT_TYPE" ] && [ -z "$IS_CHGLOG" ] && [ -f "$AGENT_DIR/scripts/generate-changelog.py" ]; then
+    SHORT=$(git log -1 --format=%h)
+    python3 "$AGENT_DIR/scripts/generate-changelog.py" --output "CHANGELOG.md" 2>/dev/null
+    if ! git diff --quiet "CHANGELOG.md" 2>/dev/null || ! git ls-files --error-unmatch "CHANGELOG.md" 2>/dev/null; then
+        git add "CHANGELOG.md"
+        git commit --no-verify -m "chore(changelog): update for $SHORT" 2>/dev/null && \
+            echo "[changelog] CHANGELOG.md updated for $SHORT"
+    fi
+fi
 AGENT_EOF
             chmod +x "$dir/commit/assets/post-commit.sh"
             wrote=$((wrote + 1))
