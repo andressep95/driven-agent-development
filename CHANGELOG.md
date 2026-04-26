@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### [61f65d6] — 2026-04-25
+
+**feat(changelog): add full-history regeneration from git and jsonl**
+
+> - Add generate-changelog.py: per-commit sections [hash] with
+> Added/Changed/Removed file grouping, enriched from memory.jsonl
+> hunk data and git commit body
+> - Add rebuild-chroma.sh: drops and rebuilds ChromaDB collection
+
+#### Added
+
+- `.agent/scripts/generate-changelog.py` — Added    — new files in this commit
+- `.agent/scripts/rebuild-chroma.sh` — Drops and rebuilds the ChromaDB collection from .agent/memory.jsonl.
+- `.agent/scripts/sync-to-chroma.py`
+- `setup.sh`
+- `skills/changelog/SKILL.md` — changelog
+
+#### Changed
+
+- `.agent/scripts/sync-to-chroma.py`
+- `setup.sh`
+- `skills/changelog/SKILL.md` — changelog
+
+---
+
 ### [0edf290] — 2026-04-25
 
 **refactor(agent): remove memory.db references and harden memory bootstrap**
