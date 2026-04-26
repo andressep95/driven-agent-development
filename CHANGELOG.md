@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### [fb0be98] — 2026-04-25
+
+**feat(commit): auto-regenerate CHANGELOG.md on feat/fix/refactor/perf/sec commits**
+
+> - Add Pass 3 to post-commit hook: runs generate-changelog.py after
+> any notable commit type and auto-commits the updated CHANGELOG.md
+> - Guard against infinite loop via chore(changelog): prefix detection
+> - Uses --no-verify on the changelog commit to skip hook re-entry
+
+#### Added
+
+- `setup.sh` — Pass 3 — auto-regenerate CHANGELOG.md for notable commit types
+- `skills/commit/assets/post-commit.sh` — Pass 3 — auto-regenerate CHANGELOG.md for notable commit types
+
+---
+
 ### [61f65d6] — 2026-04-25
 
 **feat(changelog): add full-history regeneration from git and jsonl**
