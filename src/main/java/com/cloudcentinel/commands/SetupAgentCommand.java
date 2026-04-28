@@ -1,5 +1,8 @@
 package com.cloudcentinel.commands;
 
+import org.jline.terminal.Attributes;
+import org.jline.terminal.Terminal;
+import org.jline.terminal.TerminalBuilder;
 import picocli.CommandLine.Command;
 
 import java.io.*;
@@ -14,7 +17,7 @@ import java.util.jar.JarFile;
 
 @Command(
     name = "setup-agent",
-    description = "Bootstraps the full agent scaffold: .agents/, skills, scripts, hooks, and symlinks.",
+    description = "Initializes git if needed, then bootstraps the full agent scaffold: .agents/, skills, scripts, hooks, and symlinks.",
     mixinStandardHelpOptions = true
 )
 public class SetupAgentCommand implements Callable<Integer> {
@@ -26,28 +29,60 @@ public class SetupAgentCommand implements Callable<Integer> {
 
     @Override
     public Integer call() {
-        System.out.println("[setup-agent] Bootstrapping agent scaffold...\n");
+        if (!isGitRepo()) {
+            System.out.print("[setup-agent] No git repository found in this directory.\n"
+                    + "Initialize one? [s/n]: ");
+            String answer = new Scanner(System.in).nextLine().trim().toLowerCase();
+            if (!answer.equals("s")) {
+                System.out.println("[setup-agent] Aborted.");
+                return 0;
+            }
+            int code = initRepo();
+            if (code != 0) return code;
+        }
+
+        Set<String> tools;
         try {
-            extractFile("rules.md",                           ".agents/rules.md");
-            extractFile(".claude/settings.json",              ".claude/settings.json");
-            extractFile(".kiro/hooks/post-commit-clear.yaml", ".kiro/hooks/post-commit-clear.yaml");
+            tools = selectTools();
+        } catch (Exception e) {
+            System.err.println("[setup-agent] ERROR reading input: " + e.getMessage());
+            return 1;
+        }
+        if (tools.isEmpty()) {
+            System.out.println("[setup-agent] No tools selected. Aborted.");
+            return 0;
+        }
 
-            extractDir("skills/",  ".agents/skills/");
-            extractDir("scripts/", ".agents/scripts/");
+        System.out.println("\n[setup-agent] Bootstrapping agent scaffold...\n");
+        try {
+            // ── shared ────────────────────────────────────────────────────────
+            extractFile("rules.md", ".agents/rules.md");
+            extractDir("skills/",   ".agents/skills/");
+            extractDir("scripts/",  ".agents/scripts/");
             makeAllExecutable(".agents/scripts/");
-
             mkdir(".agents/memory");
-
-            symlink("CLAUDE.md",                       ".agents/rules.md");
-            symlink("AGENTS.md",                       ".agents/rules.md");
-            symlink(".claude/skills",                  "../.agents/skills");
-            symlink(".kiro/skills",                    "../.agents/skills");
-            symlink(".kiro/steering/project-rules.md", "../../.agents/rules.md");
-
             gitHook("scripts/post-commit", ".git/hooks/post-commit");
 
-            globalHook("hooks/post-commit-clear.sh", ".claude/hooks/post-commit-clear.sh");
-            globalHook("hooks/post-commit-clear.sh", ".kiro/hooks/post-commit-clear.sh");
+            // ── Claude ────────────────────────────────────────────────────────
+            if (tools.contains("claude")) {
+                extractFile(".claude/settings.json", ".claude/settings.json");
+                symlink("CLAUDE.md",      ".agents/rules.md");
+                symlink(".claude/skills", "../.agents/skills");
+                globalHook("hooks/post-commit-clear.sh", ".claude/hooks/post-commit-clear.sh");
+            }
+
+            // ── Kiro ──────────────────────────────────────────────────────────
+            if (tools.contains("kiro")) {
+                extractFile(".kiro/hooks/post-commit-clear.yaml", ".kiro/hooks/post-commit-clear.yaml");
+                symlink(".kiro/skills",                    "../.agents/skills");
+                symlink(".kiro/steering/project-rules.md", "../../.agents/rules.md");
+                globalHook("hooks/post-commit-clear.sh", ".kiro/hooks/post-commit-clear.sh");
+            }
+
+            // ── OpenCode ──────────────────────────────────────────────────────
+            if (tools.contains("opencode")) {
+                symlink("AGENTS.md", ".agents/rules.md");
+            }
 
             System.out.println("\n[setup-agent] Done.");
             System.out.println("  Next: fill in '## Stack' in .agents/rules.md, then run scan-memory.");
@@ -57,6 +92,64 @@ public class SetupAgentCommand implements Callable<Integer> {
             System.err.println("\n[setup-agent] ERROR: " + e.getMessage());
             return 1;
         }
+    }
+
+    private Set<String> selectTools() throws Exception {
+        String[] labels  = {"Claude Code", "Kiro", "OpenCode"};
+        String[] keys    = {"claude",      "kiro", "opencode"};
+        boolean[] marked = {true,          true,   true};
+        int cursor = 0;
+
+        try (Terminal terminal = TerminalBuilder.builder().system(true).build()) {
+            Attributes saved = terminal.enterRawMode();
+            PrintWriter out  = terminal.writer();
+            try {
+                renderChecklist(out, labels, marked, cursor);
+                while (true) {
+                    int ch = terminal.reader().read();
+                    if (ch == 27) {
+                        int b = terminal.reader().read();
+                        if (b == '[') {
+                            int dir = terminal.reader().read();
+                            if (dir == 'A' && cursor > 0) cursor--;
+                            else if (dir == 'B' && cursor < labels.length - 1) cursor++;
+                        }
+                    } else if (ch == ' ') {
+                        marked[cursor] = !marked[cursor];
+                    } else if (ch == '\r' || ch == '\n') {
+                        break;
+                    }
+                    clearLines(out, labels.length + 3);
+                    renderChecklist(out, labels, marked, cursor);
+                }
+            } finally {
+                terminal.setAttributes(saved);
+                out.println();
+                out.flush();
+            }
+        }
+
+        Set<String> result = new LinkedHashSet<>();
+        for (int i = 0; i < keys.length; i++) {
+            if (marked[i]) result.add(keys[i]);
+        }
+        return result;
+    }
+
+    private void renderChecklist(PrintWriter out, String[] labels, boolean[] marked, int cursor) {
+        out.println("[setup-agent] Select AI tools to configure:");
+        out.println("  ↑↓ navigate  ·  Space toggle  ·  Enter confirm\n");
+        for (int i = 0; i < labels.length; i++) {
+            String pointer = i == cursor ? "> " : "  ";
+            String check   = marked[i]   ? "x" : " ";
+            out.printf("  %s[%s] %s%n", pointer, check, labels[i]);
+        }
+        out.flush();
+    }
+
+    private void clearLines(PrintWriter out, int n) {
+        for (int i = 0; i < n; i++) out.print("\033[1A\033[2K");
+        out.flush();
     }
 
     // ── extract ───────────────────────────────────────────────────────────────
@@ -186,5 +279,34 @@ public class SetupAgentCommand implements Callable<Integer> {
 
     private void log(String action, String detail) {
         System.out.printf("  [%s] %s%n", action, detail);
+    }
+
+    // ── git ───────────────────────────────────────────────────────────────────
+
+    private boolean isGitRepo() {
+        try {
+            ProcessBuilder pb = new ProcessBuilder("git", "rev-parse", "--git-dir");
+            pb.redirectErrorStream(true);
+            Process proc = pb.start();
+            String out = new String(proc.getInputStream().readAllBytes()).trim();
+            proc.waitFor();
+            return !out.startsWith("fatal:");
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private int initRepo() {
+        try {
+            ProcessBuilder pb = new ProcessBuilder("git", "init");
+            pb.inheritIO();
+            int code = pb.start().waitFor();
+            if (code == 0) System.out.println("[setup-agent] Git repository initialized.\n");
+            else System.err.println("[setup-agent] Failed to initialize git (exit " + code + ").");
+            return code;
+        } catch (Exception e) {
+            System.err.println("[setup-agent] ERROR: " + e.getMessage());
+            return 1;
+        }
     }
 }

@@ -1,6 +1,5 @@
 package com.cloudcentinel;
 
-import com.cloudcentinel.commands.InitRepoCommand;
 import com.cloudcentinel.commands.ScanGitConfigCommand;
 import com.cloudcentinel.commands.SetupAgentCommand;
 import picocli.CommandLine;
@@ -11,7 +10,6 @@ import picocli.CommandLine.Command;
     description = "Driven Agent Development CLI",
     mixinStandardHelpOptions = true,
     subcommands = {
-        InitRepoCommand.class,
         SetupAgentCommand.class,
         ScanGitConfigCommand.class
     }
