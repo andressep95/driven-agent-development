@@ -29,7 +29,6 @@ task → query memory (if existing code) → load skill → execute → commit �
 | `endpoint-trace` | Maps full call chain from controller inward. Output in docs/traces/. Trigger: Documenting or auditing an endpoint. | [SKILL.md](.agents/skills/endpoint-trace/SKILL.md) |
 | `feature-docs` | Generates usage-flow docs in docs/features/. Trigger: After marking a feature complete in openapi.yaml. | [SKILL.md](.agents/skills/feature-docs/SKILL.md) |
 | `find-skills` | Discovers and installs agent skills. Trigger: User asks "how do I do X" or "find a skill for X". | [SKILL.md](.agents/skills/find-skills/SKILL.md) |
-| `memory-commit` | Protocol for writing what/why/breaking commit bodies. Reference for the full RAG memory model. | [SKILL.md](.agents/skills/memory-commit/SKILL.md) |
 | `openapi` | Keeps api/openapi.yaml in sync with Spring controllers. Trigger: Adding, modifying, or deleting any endpoint or schema. | [SKILL.md](.agents/skills/openapi/SKILL.md) |
 | `query-memory` | Semantic search over Chroma with JSONL fallback. Trigger: Need context about existing code before acting. | [SKILL.md](.agents/skills/query-memory/SKILL.md) |
 | `scan-memory` | Scans git history into .agents/memory/memory.jsonl and syncs to Chroma. Trigger: First setup, empty memory, or major refactor. | [SKILL.md](.agents/skills/scan-memory/SKILL.md) |

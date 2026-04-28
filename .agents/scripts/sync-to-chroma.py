@@ -33,7 +33,10 @@ def entry_to_chroma(e):
     record_type = e.get('type', 'symbol')
 
     if record_type == 'change':
-        entry_id = f"change:{e.get('commit','')}:{e.get('file','')}:{e.get('lines_start', 0)}"
+        entry_id = (
+            f"change:{e.get('commit','')}:{e.get('file','')}:"
+            f"{e.get('lines_start', 0)}:{e.get('lines_end', 0)}"
+        )
         doc = f"{e.get('change_type','')} in {e.get('file','')} [{e.get('symbol','')}]: {e.get('intent','')}"
         hunk = e.get('hunk_content', '')
         if hunk:
@@ -110,15 +113,17 @@ def main():
 
     collection = client.get_or_create_collection(args.collection)
 
-    ids, documents, metadatas = [], [], []
+    seen: dict[str, tuple[str, dict]] = {}
     for e in entries:
         try:
             eid, doc, meta = entry_to_chroma(e)
-            ids.append(eid)
-            documents.append(doc)
-            metadatas.append(meta)
+            seen[eid] = (doc, meta)
         except Exception as ex:
             print(f"  skipping malformed entry: {ex}", file=sys.stderr)
+
+    ids       = list(seen.keys())
+    documents = [seen[k][0] for k in ids]
+    metadatas = [seen[k][1] for k in ids]
 
     if ids:
         collection.upsert(ids=ids, documents=documents, metadatas=metadatas)
