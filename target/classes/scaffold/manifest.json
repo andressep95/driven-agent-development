@@ -1,0 +1,28 @@
+{
+  "version": "1.0",
+  "extract": [
+    { "from": "rules.md",                          "to": ".agents/rules.md" },
+    { "from": "skills/",                           "to": ".agents/skills/" },
+    { "from": "scripts/",                          "to": ".agents/scripts/" },
+    { "from": "chroma/docker-compose.yml",         "to": ".agents/chroma/docker-compose.yml" },
+    { "from": ".claude/settings.json",             "to": ".claude/settings.json" },
+    { "from": ".kiro/hooks/post-commit-clear.yaml","to": ".kiro/hooks/post-commit-clear.yaml" }
+  ],
+  "mkdirs": [
+    ".agents/memory"
+  ],
+  "symlinks": [
+    { "from": "CLAUDE.md",                       "to": ".agents/rules.md" },
+    { "from": "AGENTS.md",                       "to": ".agents/rules.md" },
+    { "from": ".claude/skills",                  "to": "../.agents/skills" },
+    { "from": ".kiro/skills",                    "to": "../.agents/skills" },
+    { "from": ".kiro/steering/project-rules.md", "to": "../../.agents/rules.md" }
+  ],
+  "copy_and_exec": [
+    { "from": "scripts/post-commit", "to": ".git/hooks/post-commit" }
+  ],
+  "global_hooks": [
+    { "from": "hooks/post-commit-clear.sh", "to": "~/.claude/hooks/post-commit-clear.sh", "chmod": true },
+    { "from": "hooks/post-commit-clear.sh", "to": "~/.kiro/hooks/post-commit-clear.sh",   "chmod": true }
+  ]
+}
