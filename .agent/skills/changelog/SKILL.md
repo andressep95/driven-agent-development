@@ -125,7 +125,7 @@ Released versions are **immutable** — never modify a block that already has a 
 
 ---
 
-## Workflow — Single Commit
+## Workflow
 
 ```bash
 # 1. Check what was just committed
@@ -141,76 +141,6 @@ head -40 CHANGELOG.md
 # 5. Commit the changelog update
 git add CHANGELOG.md
 git commit -m "chore: update changelog for <brief description>"
-```
-
----
-
-## Full Regeneration — from Git History
-
-Use this when CHANGELOG.md is missing, stale, or the project was imported
-without one. The script replays every conventional commit in git history,
-groups entries by version tags, and writes a complete `CHANGELOG.md`.
-
-Each entry embeds the commit hash as `<!-- short_hash -->` for idempotent
-future runs.
-
-```bash
-# Preview without writing
-python3 .agent/scripts/generate-changelog.py --dry-run
-
-# Generate (overwrites existing CHANGELOG.md)
-python3 .agent/scripts/generate-changelog.py
-
-# Write to a custom path
-python3 .agent/scripts/generate-changelog.py --output path/to/CHANGELOG.md
-```
-
-**Commit type → section mapping** is the same as the table above.
-Commits of type `chore`, `ci`, `test`, `docs`, `style`, `build`, `wip`
-are silently skipped.  Version buckets are derived from `git tag`; commits
-after the last tag land in `[Unreleased]`.
-
----
-
-## Full Regeneration — from memory.jsonl
-
-Use this when git history is unavailable (e.g., a shallow clone or an
-imported project where only `.agent/memory.jsonl` was carried over).
-
-The script reads unique commits from the JSONL, uses the `intent` field
-as the commit subject, and applies the same conventional-commit parsing.
-
-```bash
-# From default .agent/memory.jsonl
-python3 .agent/scripts/generate-changelog.py --from-jsonl
-
-# From a specific file
-python3 .agent/scripts/generate-changelog.py --from-jsonl path/to/memory.jsonl
-
-# Preview
-python3 .agent/scripts/generate-changelog.py --from-jsonl --dry-run
-```
-
-> **Note:** The JSONL stores commit messages in the `intent` field.
-> If `memory.jsonl` is missing or empty, run `scan-memory` first to
-> populate it from git history, then use the git-based regeneration above.
-
----
-
-## Rebuild ChromaDB from memory.jsonl
-
-Use this after importing a project from backup, or when the Chroma index
-is out of sync with `memory.jsonl`.
-
-```bash
-# Drop and rebuild the Chroma collection from memory.jsonl
-bash .agent/scripts/rebuild-chroma.sh
-
-# Custom Chroma URL
-CHROMA_URL=http://myhost:8000 bash .agent/scripts/rebuild-chroma.sh
-
-# Incremental upsert (no drop — adds new records without removing old ones)
-python3 .agent/scripts/sync-to-chroma.py --url http://localhost:8000
 ```
 
 ---

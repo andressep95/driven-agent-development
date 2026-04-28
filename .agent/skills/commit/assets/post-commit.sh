@@ -15,13 +15,13 @@ CHROMA_URL="${CHROMA_URL:-http://localhost:8000}"
 # All tracked file types for hunk tracking
 ALL_ADDED=$(git diff --name-only --diff-filter=A HEAD~1 HEAD 2>/dev/null \
     | grep -E '\.(java|md|sh|py|yaml|yml|sql|json)$' \
-    | grep -v 'memory\.jsonl\|memory\.db' || true)
+    | grep -v 'memory\.jsonl' || true)
 ALL_DELETED=$(git diff --name-only --diff-filter=D HEAD~1 HEAD 2>/dev/null \
     | grep -E '\.(java|md|sh|py|yaml|yml|sql|json)$' \
-    | grep -v 'memory\.jsonl\|memory\.db' || true)
+    | grep -v 'memory\.jsonl' || true)
 ALL_MODIFIED=$(git diff --name-only --diff-filter=M HEAD~1 HEAD 2>/dev/null \
     | grep -E '\.(java|md|sh|py|yaml|yml|sql|json)$' \
-    | grep -v 'memory\.jsonl\|memory\.db' || true)
+    | grep -v 'memory\.jsonl' || true)
 
 # Java-only for symbol location tracking
 JAVA_ADDED=$(echo "$ALL_ADDED"    | grep '\.java$' || true)

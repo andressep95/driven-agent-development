@@ -8,7 +8,7 @@ import json, sys, os, re, subprocess, argparse
 from datetime import date
 
 TRACKED_EXTENSIONS = {'.java', '.md', '.sh', '.py', '.yaml', '.yml', '.sql', '.json'}
-SKIP_FILES = {'memory.jsonl', 'memory.db'}
+SKIP_FILES = {'memory.jsonl'}
 
 
 # ── git helpers ───────────────────────────────────────────────────────────────
