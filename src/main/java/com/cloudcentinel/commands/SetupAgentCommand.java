@@ -70,6 +70,7 @@ public class SetupAgentCommand implements Callable<Integer> {
         try {
             // ── shared ────────────────────────────────────────────────────────
             extractFile("rules.md", ".agents/rules.md");
+            extractFile("agents-compose.yml", ".agents/agents-compose.yml");
             extractDir("skills/",   ".agents/skills/");
             extractDir("scripts/",  ".agents/scripts/");
             makeAllExecutable(".agents/scripts/");
