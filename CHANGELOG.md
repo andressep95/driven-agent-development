@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### [36319eb] — 2026-04-28
+
+**feat(cli): add ChromaDB compose file to scaffold**
+
+> what: Adds agents-compose.yml to scaffold and updates setup-agent to extract it to client machines
+> why: Enables clients to run local ChromaDB instance for vector search memory queries
+> breaking: false
+
+_Run with jsonl enrichment for file-level detail._
+
+---
+
 ### [64f7ee6] — 2026-04-28
 
 **fix(docker): install git in runtime image**
