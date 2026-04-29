@@ -23,7 +23,6 @@ task → query memory (if existing code) → load skill → execute → commit �
 
 | Skill | Description | File |
 |-------|-------------|------|
-| `changelog` | Manages CHANGELOG.md entries following keepachangelog.com format. Trigger: After committing a feat, fix, sec, perf, or refactor — or before creating a PR. | [SKILL.md](.agents/skills/changelog/SKILL.md) |
 | `clean-ddd-hexagonal` | Clean Architecture + DDD + Hexagonal patterns for backend services. Trigger: APIs, microservices, domain models, aggregates, repositories, use cases, bounded contexts. | [SKILL.md](.agents/skills/clean-ddd-hexagonal/SKILL.md) |
 | `commit` | Conventional Commits with structured what/why/breaking body for RAG memory. Trigger: Before any git commit. | [SKILL.md](.agents/skills/commit/SKILL.md) |
 | `endpoint-trace` | Maps full call chain from controller inward. Output in docs/traces/. Trigger: Documenting or auditing an endpoint. | [SKILL.md](.agents/skills/endpoint-trace/SKILL.md) |
@@ -40,8 +39,6 @@ task → query memory (if existing code) → load skill → execute → commit �
 | Action | Skill |
 |--------|-------|
 | Before any git commit | `commit` |
-| After committing feat / fix / refactor / perf / sec | `changelog` |
-| Before creating a pull request | `changelog` |
 | Need context about existing code before acting | `query-memory` |
 | memory.jsonl is empty, missing, or after major refactor | `scan-memory` |
 | Adding, modifying, or deleting an endpoint or schema | `openapi` |

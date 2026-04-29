@@ -121,12 +121,19 @@ def semantic_desc(what: str, why: str, intent: str, symbol: str, file: str) -> s
 
 
 def main() -> None:
-    commit  = run("git log -1 --format=%h")
-    author  = run("git log -1 --format=%an")
-    email   = run("git log -1 --format=%ae")
-    ts      = run("git log -1 --format=%cI")[:10]
-    intent  = run("git log -1 --format=%s")
-    body    = run("git log -1 --format=%b")
+    import argparse
+    p = argparse.ArgumentParser()
+    p.add_argument("--ref", default="HEAD",
+                   help="Commit ref to extract (default: HEAD)")
+    args = p.parse_args()
+    ref = args.ref
+
+    commit  = run(f"git log -1 --format=%h {ref}")
+    author  = run(f"git log -1 --format=%an {ref}")
+    email   = run(f"git log -1 --format=%ae {ref}")
+    ts      = run(f"git log -1 --format=%cI {ref}")[:10]
+    intent  = run(f"git log -1 --format=%s {ref}")
+    body    = run(f"git log -1 --format=%b {ref}")
     branch  = run("git rev-parse --abbrev-ref HEAD")
     project = Path(run("git rev-parse --show-toplevel")).name
 
@@ -141,7 +148,12 @@ def main() -> None:
 
     commit_type, scope = parse_commit_parts(intent)
 
-    files_raw = run("git diff-tree --no-commit-id -r --name-only HEAD")
+    # Detect parent (empty tree for initial commit)
+    parent = run(f"git rev-parse --verify {ref}~1 2>/dev/null")
+    if not parent:
+        parent = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+
+    files_raw = run(f"git diff-tree --no-commit-id -r --name-only {ref}")
     all_files = [f for f in files_raw.splitlines() if f]
     related   = {f: [x for x in all_files if x != f] for f in all_files}
 
@@ -150,15 +162,30 @@ def main() -> None:
     memory_dir.mkdir(parents=True, exist_ok=True)
     jsonl_path = memory_dir / "memory.jsonl"
 
+    # Dedup: skip records already in memory.jsonl for this commit
+    existing_keys: set[tuple[str, str, str]] = set()
+    if jsonl_path.exists():
+        with open(jsonl_path, encoding="utf-8") as f:
+            for raw in f:
+                raw = raw.strip()
+                if not raw:
+                    continue
+                try:
+                    e = json.loads(raw)
+                    if e.get("type") == "change" and e.get("commit") == commit:
+                        existing_keys.add((e["commit"], e["file"], e.get("hunk_header", "")))
+                except json.JSONDecodeError:
+                    pass
+
     records = []
 
     for file in all_files:
         kind = file_kind(file)
         lang = detect_language(file)
 
-        diff = run(f'git diff HEAD~1 HEAD -- "{file}" 2>/dev/null')
+        diff = run(f'git diff {parent} {ref} -- "{file}" 2>/dev/null')
         if not diff:
-            diff = run(f'git show HEAD -- "{file}"')
+            diff = run(f'git show {ref} -- "{file}"')
 
         lines     = diff.splitlines()
         start_idx = next((i for i, l in enumerate(lines) if l.startswith("@@")), None)
@@ -179,6 +206,10 @@ def main() -> None:
             }]
 
         for h in hunks:
+            key = (commit, file, h["hunk_header"])
+            if key in existing_keys:
+                continue
+
             ctype = change_type(h["adds"], h["dels"])
             tags  = make_tags(commit_type, scope, kind, ctype)
             sdesc = semantic_desc(what, why, intent, h["symbol"], file)
@@ -211,6 +242,9 @@ def main() -> None:
                 "hunk_header":          h["hunk_header"],
                 "hunk_content":         "\n".join(h["content"][:100]),
             })
+
+    if not records:
+        return
 
     with open(jsonl_path, "a", encoding="utf-8") as f:
         for r in records:

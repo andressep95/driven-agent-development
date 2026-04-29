@@ -1,137 +1,133 @@
 #!/usr/bin/env python3
 """
-Pushes all memory.jsonl entries to ChromaDB.
-Handles two record types:
-  symbol — Java code symbols from scan-memory
-  change — git hunk records from sync-hunks.py
+Syncs .agents/memory/memory.jsonl to a persistent Chroma collection.
+Embeds semantic_description. Stores the rest as metadata.
+Idempotent — skips already-indexed records by ID (commit:file:lines_start).
+
+Usage:
+  python3 .agents/scripts/sync-to-chroma.py
+  python3 .agents/scripts/sync-to-chroma.py --rebuild
+  python3 .agents/scripts/sync-to-chroma.py --openai
 """
-import json, sys, os, argparse
-try:
-    import chromadb
-except ImportError:
-    print("ERROR: chromadb not installed. Run: pip install chromadb")
-    sys.exit(1)
+
+import argparse
+import json
+import sys
+from pathlib import Path
 
 
-def load_jsonl(path):
-    entries = []
-    if not os.path.exists(path):
-        return entries
-    with open(path) as f:
-        for raw in f:
-            raw = raw.strip()
-            if raw:
-                try:
-                    entries.append(json.loads(raw))
-                except json.JSONDecodeError:
-                    pass
-    return entries
+def load_jsonl(path: str) -> list[dict]:
+    records = []
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                records.append(json.loads(line))
+    return records
 
 
-def entry_to_chroma(e):
-    """Return (id, document, metadata) for any record type."""
-    record_type = e.get('type', 'symbol')
-
-    if record_type == 'change':
-        entry_id = (
-            f"change:{e.get('commit','')}:{e.get('file','')}:"
-            f"{e.get('lines_start', 0)}:{e.get('lines_end', 0)}"
+def get_embedding_function(use_openai: bool):
+    from chromadb.utils import embedding_functions
+    if use_openai:
+        import os
+        api_key = os.environ.get("OPENAI_API_KEY")
+        if not api_key:
+            print("ERROR: OPENAI_API_KEY not set.")
+            sys.exit(1)
+        return embedding_functions.OpenAIEmbeddingFunction(
+            api_key=api_key,
+            model_name="text-embedding-3-small",
         )
-        doc = f"{e.get('change_type','')} in {e.get('file','')} [{e.get('symbol','')}]: {e.get('intent','')}"
-        hunk = e.get('hunk_content', '')
-        if hunk:
-            doc += f"\n{hunk[:500]}"
-        tags = e.get('tags', [])
-        if tags:
-            doc += f"\nTags: {', '.join(tags)}"
-        metadata = {
-            'type':        'change',
-            'change_type': e.get('change_type', ''),
-            'file':        e.get('file', ''),
-            'file_kind':   e.get('file_kind', ''),
-            'symbol':      e.get('symbol', ''),
-            'lines_start': e.get('lines_start', 0),
-            'lines_end':   e.get('lines_end', 0),
-            'lines_delta': e.get('lines_delta', 0),
-            'intent':      e.get('intent', ''),
-            'tags':        json.dumps(tags),
-            'commit':      e.get('commit', ''),
-            'author':      e.get('author', ''),
-            'email':       e.get('email', ''),
-            'ts':          e.get('ts', ''),
-        }
-    else:
-        entry_id = f"symbol:{e.get('file', '')}:{e.get('symbol', '')}"
-        lines = e.get('lines', [0, 0])
-        tags  = e.get('tags', [])
-        kind  = e.get('kind', '')
-        doc = f"{e.get('symbol', '')} ({kind}): {e.get('intent', '')}"
-        if tags:
-            doc += f" Tags: {', '.join(tags)}"
-        metadata = {
-            'type':        'symbol',
-            'symbol':      e.get('symbol', ''),
-            'kind':        kind,
-            'file':        e.get('file', ''),
-            'lines_start': lines[0] if lines else 0,
-            'lines_end':   lines[1] if len(lines) > 1 else 0,
-            'intent':      e.get('intent', ''),
-            'tags':        json.dumps(tags),
-            'author':      e.get('author', e.get('email', '')),
-            'email':       e.get('email', ''),
-            'commit':      e.get('commit', ''),
-            'ts':          e.get('ts', ''),
-        }
-
-    return entry_id, doc, metadata
+    return embedding_functions.DefaultEmbeddingFunction()
 
 
-def main():
-    p = argparse.ArgumentParser()
-    p.add_argument('--jsonl',      default='.agents/memory/memory.jsonl')
-    p.add_argument('--url',        default='http://localhost:8000')
-    p.add_argument('--collection', default='codebase')
-    p.add_argument('--rebuild',    action='store_true',
-                   help='Drop and recreate the collection before syncing (full rebuild)')
-    args = p.parse_args()
+def build_metadata(r: dict) -> dict:
+    return {
+        "file":          r["file"],
+        "file_kind":     r["file_kind"],
+        "language":      r.get("language", ""),
+        "symbol":        r.get("symbol", ""),
+        "what":          r.get("what", ""),
+        "why":           r.get("why", ""),
+        "intent":        r["intent"],
+        "commit_type":   r.get("commit_type", ""),
+        "scope":         r.get("scope", ""),
+        "change_type":   r["change_type"],
+        "commit":        r["commit"],
+        "branch":        r.get("branch", ""),
+        "project":       r.get("project", ""),
+        "ts":            r["ts"],
+        "author":        r["author"],
+        "tags":          ",".join(r.get("tags", [])),
+        "related_files": ",".join(r.get("related_files", [])),
+        "lines_start":   r["lines_start"],
+        "lines_end":     r["lines_end"],
+        "breaking":      "true" if r.get("breaking") else "false",
+    }
 
-    entries = load_jsonl(args.jsonl)
-    if not entries:
-        print("No entries in memory.jsonl")
+
+def sync(jsonl_path: str, chroma_path: str, collection_name: str,
+         use_openai: bool, rebuild: bool) -> None:
+    try:
+        import chromadb
+    except ImportError:
+        print("ERROR: pip install chromadb")
         sys.exit(1)
 
-    host = args.url.replace('http://', '').replace('https://', '').split(':')[0]
-    port = int(args.url.split(':')[-1]) if ':' in args.url else 8000
-    client = chromadb.HttpClient(host=host, port=port)
+    if not Path(jsonl_path).exists():
+        print(f"ERROR: {jsonl_path} not found.")
+        sys.exit(1)
 
-    if args.rebuild:
+    records = load_jsonl(jsonl_path)
+    print(f"Loaded {len(records)} records from {jsonl_path}")
+
+    client = chromadb.PersistentClient(path=chroma_path)
+    ef     = get_embedding_function(use_openai)
+
+    if rebuild:
         try:
-            client.delete_collection(args.collection)
-            print(f"Dropped collection '{args.collection}'")
+            client.delete_collection(collection_name)
+            print(f"Dropped collection '{collection_name}'")
         except Exception:
             pass
 
-    collection = client.get_or_create_collection(args.collection)
+    collection = client.get_or_create_collection(
+        name=collection_name,
+        embedding_function=ef,
+        metadata={"hnsw:space": "cosine"},
+    )
 
-    seen: dict[str, tuple[str, dict]] = {}
-    for e in entries:
-        try:
-            eid, doc, meta = entry_to_chroma(e)
-            seen[eid] = (doc, meta)
-        except Exception as ex:
-            print(f"  skipping malformed entry: {ex}", file=sys.stderr)
+    existing = set(collection.get(include=[])["ids"])
+    new = [
+        r for r in records
+        if f"{r['commit']}:{r['file']}:{r['lines_start']}" not in existing
+    ]
 
-    ids       = list(seen.keys())
-    documents = [seen[k][0] for k in ids]
-    metadatas = [seen[k][1] for k in ids]
+    if not new:
+        print("Nothing new to index.")
+        return
 
-    if ids:
-        collection.upsert(ids=ids, documents=documents, metadatas=metadatas)
+    print(f"Indexing {len(new)} new records...")
+    BATCH = 100
+    for i in range(0, len(new), BATCH):
+        batch     = new[i : i + BATCH]
+        ids       = [f"{r['commit']}:{r['file']}:{r['lines_start']}" for r in batch]
+        documents = [r.get("semantic_description") or r["intent"] for r in batch]
+        metas     = [build_metadata(r) for r in batch]
+        collection.upsert(ids=ids, documents=documents, metadatas=metas)
+        print(f"  {min(i + BATCH, len(new))}/{len(new)} indexed...")
 
-    symbols = sum(1 for e in entries if e.get('type') == 'symbol')
-    changes = sum(1 for e in entries if e.get('type') == 'change')
-    print(f"Synced {len(ids)} entries to Chroma (symbols={symbols} changes={changes})")
+    print(f"Done. Collection '{collection_name}' at {chroma_path}")
 
 
-if __name__ == '__main__':
-    main()
+if __name__ == "__main__":
+    p = argparse.ArgumentParser()
+    p.add_argument("--jsonl",      default=".agents/memory/memory.jsonl")
+    p.add_argument("--chroma",     default=".agents/memory/chroma")
+    p.add_argument("--collection", default="changes")
+    p.add_argument("--openai",     action="store_true")
+    p.add_argument("--rebuild",    action="store_true",
+                   help="Drop and recreate the collection before syncing")
+    args = p.parse_args()
+
+    sync(args.jsonl, args.chroma, args.collection, args.openai, args.rebuild)

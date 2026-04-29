@@ -88,8 +88,8 @@ def print_result(m, score_label):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument('query', nargs='?', default='')
-    p.add_argument('--url',        default='http://localhost:8000')
-    p.add_argument('--collection', default='codebase')
+    p.add_argument('--chroma',     default='.agents/memory/chroma')
+    p.add_argument('--collection', default='changes')
     p.add_argument('--jsonl',      default='.agents/memory/memory.jsonl')
     p.add_argument('--kind',       default='', help='Filter by kind/file_kind')
     p.add_argument('--type',       default='', help='Filter by type: symbol | change')
@@ -104,11 +104,10 @@ def main():
     if not args.no_chroma:
         try:
             import chromadb
-            host = args.url.replace('http://', '').replace('https://', '').split(':')[0]
-            port = int(args.url.split(':')[-1]) if ':' in args.url else 8000
-            client = chromadb.HttpClient(host=host, port=port)
-            client.heartbeat()
-            collection = client.get_collection(args.collection)
+            from chromadb.utils import embedding_functions
+            client = chromadb.PersistentClient(path=args.chroma)
+            ef = embedding_functions.DefaultEmbeddingFunction()
+            collection = client.get_collection(args.collection, embedding_function=ef)
 
             where = {}
             if args.kind:

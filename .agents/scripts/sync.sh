@@ -13,8 +13,8 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(dirname "$(dirname "$(dirname "$SCRIPT_DIR")")")"
-SKILLS_DIR="$REPO_ROOT/skills"
+ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)"
+SKILLS_DIR="$ROOT/.agents/skills"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -44,8 +44,8 @@ done
 # ── detect targets ────────────────────────────────────────────────────────────
 
 TARGETS=()
-[ -f "$REPO_ROOT/CLAUDE.md" ]                              && TARGETS+=("Claude Code|$REPO_ROOT/CLAUDE.md")
-[ -f "$REPO_ROOT/.kiro/steering/project-rules.md" ]       && TARGETS+=("Kiro|$REPO_ROOT/.kiro/steering/project-rules.md")
+[ -f "$ROOT/CLAUDE.md" ]                              && TARGETS+=("Claude Code|$ROOT/CLAUDE.md")
+[ -f "$ROOT/.kiro/steering/project-rules.md" ]        && TARGETS+=("Kiro|$ROOT/.kiro/steering/project-rules.md")
 
 echo -e "${BLUE}Skill Sync — syncing Auto-Invoke tables${NC}"
 echo "======================================="
@@ -53,14 +53,14 @@ echo ""
 
 if [ ${#TARGETS[@]} -eq 0 ]; then
     echo -e "${YELLOW}No context files found. Run setup first:${NC}"
-    echo "  bash skills/mcp-sync/assets/setup.sh"
+    echo "  java -jar target/agent.jar setup-agent"
     exit 0
 fi
 
 echo -e "Detected context files:"
 for t in "${TARGETS[@]}"; do
     label="${t%%|*}"; path="${t##*|}"
-    echo -e "  ${GREEN}✓${NC} $label  →  ${path#$REPO_ROOT/}"
+    echo -e "  ${GREEN}✓${NC} $label  →  ${path#$ROOT/}"
 done
 echo ""
 
@@ -121,7 +121,7 @@ while IFS= read -r skill_file; do
     [ -z "$name" ] && continue
 
     # Skills table row
-    rel_path="${skill_file#$REPO_ROOT/}"
+    rel_path="${skill_file#$ROOT/}"
     printf "%s\t%s\t%s\n" "$name" "$desc" "$rel_path" >> "$SKILLS_TABLE_FILE"
 
     # Auto-invoke rows
@@ -183,7 +183,7 @@ update_section() {
 
 for t in "${TARGETS[@]}"; do
     label="${t%%|*}"; file="${t##*|}"
-    rel="${file#$REPO_ROOT/}"
+    rel="${file#$ROOT/}"
 
     echo -e "${CYAN}── $label  ($rel) ──────────────────────────────────────────${NC}"
 
@@ -200,6 +200,24 @@ for t in "${TARGETS[@]}"; do
     echo -e "  ${GREEN}✓${NC} Auto-Invoke Skills updated"
     echo ""
 done
+
+# ── verify directory symlinks ────────────────────────────────────────────────
+# setup-agent creates .claude/skills and .kiro/skills as directory symlinks
+# pointing to .agents/skills/. New skills appear automatically — no per-skill
+# symlinks are needed. This block warns if those symlinks are missing.
+
+echo -e "${BLUE}Symlink health:${NC}"
+_symlink_ok() {
+    local link="$ROOT/$1" target="../.agents/skills"
+    if [ -L "$link" ]; then
+        echo -e "  ${GREEN}✓${NC} $1 → .agents/skills/"
+    else
+        echo -e "  ${YELLOW}⚠${NC}  $1 symlink missing — run: java -jar target/agent.jar setup-agent"
+    fi
+}
+_symlink_ok ".claude/skills"
+_symlink_ok ".kiro/skills"
+echo ""
 
 # ── report skills missing metadata ───────────────────────────────────────────
 

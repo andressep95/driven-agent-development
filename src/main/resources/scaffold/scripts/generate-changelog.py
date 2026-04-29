@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Regenerates CHANGELOG.md from the full git history or .agent/memory.jsonl.
+Regenerates CHANGELOG.md from the full git history or .agents/memory.jsonl.
 
 Format: each commit gets its own ## [hash] - date section.
 Within each section, files are grouped by what happened to them:
@@ -9,12 +9,12 @@ Within each section, files are grouped by what happened to them:
   ### Removed  — deleted files
 
 Usage:
-  python3 .agent/scripts/generate-changelog.py                 # from git + jsonl enrichment
-  python3 .agent/scripts/generate-changelog.py --from-jsonl    # jsonl as commit source
-  python3 .agent/scripts/generate-changelog.py --from-jsonl path.jsonl
-  python3 .agent/scripts/generate-changelog.py --no-enrich     # skip file detail
-  python3 .agent/scripts/generate-changelog.py --dry-run
-  python3 .agent/scripts/generate-changelog.py --output path/CHANGELOG.md
+  python3 .agents/scripts/generate-changelog.py                 # from git + jsonl enrichment
+  python3 .agents/scripts/generate-changelog.py --from-jsonl    # jsonl as commit source
+  python3 .agents/scripts/generate-changelog.py --from-jsonl path.jsonl
+  python3 .agents/scripts/generate-changelog.py --no-enrich     # skip file detail
+  python3 .agents/scripts/generate-changelog.py --dry-run
+  python3 .agents/scripts/generate-changelog.py --output path/CHANGELOG.md
 """
 import re, json, os, subprocess, argparse, sys
 from collections import defaultdict, OrderedDict

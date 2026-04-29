@@ -30,19 +30,16 @@ Use `--no-chroma` for fast exact keyword or file path matching directly from JSO
 
 ```bash
 # Semantic query — uses Chroma if available, falls back to JSONL automatically
-python3 .agent/scripts/query-memory.py "handles cross-account role assumption"
+python3 .agents/scripts/query-memory.py "handles cross-account role assumption"
 
 # Filter by kind: controller, service, repository, config, dto, domain
-python3 .agent/scripts/query-memory.py "account onboarding" --kind service
+python3 .agents/scripts/query-memory.py "account onboarding" --kind service
 
 # Limit results
-python3 .agent/scripts/query-memory.py "pagination helpers" --limit 5
+python3 .agents/scripts/query-memory.py "pagination helpers" --limit 5
 
 # Force JSONL-only (skip Chroma entirely)
-python3 .agent/scripts/query-memory.py "credential caching" --no-chroma
-
-# Custom Chroma URL
-python3 .agent/scripts/query-memory.py "error handling" --url http://localhost:8000
+python3 .agents/scripts/query-memory.py "credential caching" --no-chroma
 ```
 
 ---
@@ -54,7 +51,7 @@ The script auto-detects Chroma availability at query time:
 | Chroma status | Behavior |
 |---------------|----------|
 | Running | Semantic vector search (ranked by embedding similarity) |
-| Down / not installed | Keyword search over `.agent/memory.jsonl` |
+| Down / not installed | Keyword search over `.agents/memory.jsonl` |
 
 No configuration needed — the fallback is transparent.
 
@@ -78,10 +75,10 @@ Before querying, ensure memory exists:
 
 ```bash
 # Full bootstrap: scan Java files + push to Chroma
-bash .agent/scripts/bootstrap.sh
+bash .agents/scripts/bootstrap.sh
 
 # Or push existing memory.jsonl to Chroma only
-python3 .agent/scripts/sync-to-chroma.py
+python3 .agents/scripts/sync-to-chroma.py
 ```
 
 Run `scan-memory` if `memory.jsonl` is empty or missing.

@@ -121,7 +121,7 @@ scope: [root, src/main]               # source code
 Run sync to update the skills tables:
 
 ```bash
-bash skills/skill-sync/assets/sync.sh
+bash .agents/scripts/sync.sh
 ```
 
 ---

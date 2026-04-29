@@ -18,10 +18,10 @@ allowed-tools: Read, Glob, Edit, Bash
 
 ```bash
 # Sync all skills into all detected context files
-./skills/skill-sync/assets/sync.sh
+bash .agents/scripts/sync.sh
 
 # Preview without writing
-./skills/skill-sync/assets/sync.sh --dry-run
+bash .agents/scripts/sync.sh --dry-run
 ```
 
 ---
