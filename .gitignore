@@ -16,3 +16,4 @@ target/
 # Secrets
 *.key
 *.pem
+.agents/memory/chroma/
