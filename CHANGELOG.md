@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### [d5efd04] — 2026-04-29
+
+**fix(docker): add python3 and chromadb to container image**
+
+> what: Installs python3, pip, and chromadb in the runtime image so
+> bootstrap.sh can fully populate both memory.jsonl and Chroma
+> during setup-agent without manual intervention
+> why:  The container lacked python3, causing sync-to-chroma.py to fail
+
+_Run with jsonl enrichment for file-level detail._
+
+---
+
 ### [e6d3063] — 2026-04-29
 
 **refactor(memory): migrate Chroma to local PersistentClient and auto-sync on commit**
