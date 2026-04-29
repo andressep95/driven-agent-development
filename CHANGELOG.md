@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### [84b9827] — 2026-04-28
+
+**fix(cli): handle non-interactive TTY and add multi-platform Docker build**
+
+> what: SetupAgentCommand detects missing TTY and defaults to auto-init + all tools; CI now builds linux/amd64 and linux/arm64 images
+> why: Running via docker run without -it caused a NoSuchElementException crash, and ARM Macs received an amd64 image requiring emulation
+> breaking: false
+
+_Run with jsonl enrichment for file-level detail._
+
+---
+
 ### [05b9e1e] — 2026-04-28
 
 **refactor(scripts): consolidate memory pipeline and remove deprecated utilities**
