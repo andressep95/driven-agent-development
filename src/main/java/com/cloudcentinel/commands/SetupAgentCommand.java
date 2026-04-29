@@ -27,15 +27,23 @@ public class SetupAgentCommand implements Callable<Integer> {
     private final Path root = Path.of(System.getProperty("user.dir"));
     private final Path home = Path.of(System.getProperty("user.home"));
 
+    private boolean interactive() {
+        return System.console() != null;
+    }
+
     @Override
     public Integer call() {
         if (!isGitRepo()) {
-            System.out.print("[setup-agent] No git repository found in this directory.\n"
-                    + "Initialize one? [s/n]: ");
-            String answer = new Scanner(System.in).nextLine().trim().toLowerCase();
-            if (!answer.equals("s")) {
-                System.out.println("[setup-agent] Aborted.");
-                return 0;
+            if (interactive()) {
+                System.out.print("[setup-agent] No git repository found in this directory.\n"
+                        + "Initialize one? [s/n]: ");
+                String answer = new Scanner(System.in).nextLine().trim().toLowerCase();
+                if (!answer.equals("s")) {
+                    System.out.println("[setup-agent] Aborted.");
+                    return 0;
+                }
+            } else {
+                System.out.println("[setup-agent] No git repository found — initializing (non-interactive mode).");
             }
             int code = initRepo();
             if (code != 0) return code;
@@ -43,7 +51,12 @@ public class SetupAgentCommand implements Callable<Integer> {
 
         Set<String> tools;
         try {
-            tools = selectTools();
+            if (interactive()) {
+                tools = selectTools();
+            } else {
+                tools = Set.of("claude", "kiro", "opencode");
+                System.out.println("[setup-agent] Non-interactive mode — selecting all tools.");
+            }
         } catch (Exception e) {
             System.err.println("[setup-agent] ERROR reading input: " + e.getMessage());
             return 1;

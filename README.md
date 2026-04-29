@@ -19,10 +19,10 @@ mvn package
 
 ```bash
 docker pull ghcr.io/andressep95/driven-agent-development:main
-docker run --rm -v "$PWD:/project" -w /project ghcr.io/andressep95/driven-agent-development:main setup-agent
+docker run --rm -it -v "$PWD:/project" -w /project ghcr.io/andressep95/driven-agent-development:main setup-agent
 ```
 
-This mounts your current directory into the container and runs the CLI. Replace `setup-agent` with any command.
+This mounts your current directory into the container and runs the CLI. Use `-it` for interactive commands (tool selection TUI). Replace `setup-agent` with any command.
 
 ### Commands
 
