@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### [26c3784] — 2026-04-29
+
+**refactor(agent): rename bootstrap.sh to init.sh and remove Python from Docker**
+
+> what: Renames bootstrap.sh to init.sh across all scripts, skills, scaffold,
+> and docs; setup-agent now prints the init command instead of running it;
+> removes python3, pip, and chromadb from the Docker image.
+> why:  bootstrap.sh name was generic and confusing; auto-running memory init
+
+_Run with jsonl enrichment for file-level detail._
+
+---
+
+### [fcd1b00] — 2026-04-29
+
+**Merge pull request #3 from andressep95/restructure/cli-java**
+
+> Restructure/cli java
+
+_Run with jsonl enrichment for file-level detail._
+
+---
+
 ### [d5efd04] — 2026-04-29
 
 **fix(docker): add python3 and chromadb to container image**
@@ -19,6 +42,16 @@ _Run with jsonl enrichment for file-level detail._
 
 ---
 
+### [d32bddb] — 2026-04-29
+
+**Merge pull request #2 from andressep95/restructure/cli-java**
+
+> Restructure/cli java
+
+_Run with jsonl enrichment for file-level detail._
+
+---
+
 ### [e6d3063] — 2026-04-29
 
 **refactor(memory): migrate Chroma to local PersistentClient and auto-sync on commit**
@@ -27,6 +60,16 @@ _Run with jsonl enrichment for file-level detail._
 > PersistentClient; post-commit hook now syncs memory.jsonl to
 > Chroma on every commit; setup-agent runs bootstrap automatically
 > why:  Eliminates Docker as a runtime dependency for the memory system,
+
+_Run with jsonl enrichment for file-level detail._
+
+---
+
+### [601cc3c] — 2026-04-28
+
+**Merge pull request #1 from andressep95/restructure/cli-java**
+
+> Restructure/cli java
 
 _Run with jsonl enrichment for file-level detail._
 
