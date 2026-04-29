@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### [64f7ee6] — 2026-04-28
+
+**fix(docker): install git in runtime image**
+
+> what: Adds git to the JRE runtime stage so the CLI can detect existing repositories in mounted volumes
+> why: Without git the container could not run git rev-parse, causing setup-agent to falsely report no repo found
+> breaking: false
+
+_Run with jsonl enrichment for file-level detail._
+
+---
+
 ### [84b9827] — 2026-04-28
 
 **fix(cli): handle non-interactive TTY and add multi-platform Docker build**
