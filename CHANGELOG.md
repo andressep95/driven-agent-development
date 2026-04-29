@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### [e6d3063] — 2026-04-29
+
+**refactor(memory): migrate Chroma to local PersistentClient and auto-sync on commit**
+
+> what: Removes Docker-based Chroma setup and replaces it with a local
+> PersistentClient; post-commit hook now syncs memory.jsonl to
+> Chroma on every commit; setup-agent runs bootstrap automatically
+> why:  Eliminates Docker as a runtime dependency for the memory system,
+
+_Run with jsonl enrichment for file-level detail._
+
+---
+
 ### [36319eb] — 2026-04-28
 
 **feat(cli): add ChromaDB compose file to scaffold**
