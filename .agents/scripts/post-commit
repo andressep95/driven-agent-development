@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Memory RAG + Changelog — git post-commit hook.
 # 1. Extracts diff hunks into memory.jsonl
-# 2. Regenerates CHANGELOG.md for notable commit types
+# 2. Syncs memory.jsonl to ChromaDB (local PersistentClient)
+# 3. Regenerates CHANGELOG.md for notable commit types
 #
 # Installed by setup-agent to .git/hooks/post-commit automatically.
 
@@ -13,7 +14,12 @@ if [ -f "$SCRIPTS/extract_changes.py" ]; then
     python3 "$SCRIPTS/extract_changes.py" 2>/dev/null || true
 fi
 
-# Pass 2 — regenerate changelog for notable commits
+# Pass 2 — sync new records to Chroma (idempotent, skips already-indexed)
+if [ -f "$SCRIPTS/sync-to-chroma.py" ]; then
+    python3 "$SCRIPTS/sync-to-chroma.py" 2>/dev/null || true
+fi
+
+# Pass 3 — regenerate changelog for notable commits
 COMMIT_MSG=$(git log -1 --format=%s)
 COMMIT_TYPE=$(echo "$COMMIT_MSG" | grep -oE '^(feat|fix|refactor|perf|sec)' || true)
 IS_CHGLOG=$(echo "$COMMIT_MSG" | grep -qE '^chore(\(changelog\))?' && echo 1 || true)

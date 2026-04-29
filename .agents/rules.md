@@ -3,7 +3,7 @@
 ## Rules
 
 1. **You know nothing about this project until you query memory.** Your training data has never seen this codebase.
-2. **Before acting on existing code, query memory first.** Use `query-memory` to find what exists and why.
+2. **Before writing or modifying code, query memory first.** Run `python3 .agents/scripts/query-memory.py "<what you're about to build>"` to check if similar logic already exists. Use the results to avoid duplication and maintain consistency. Skip only for pure documentation or config changes.
 3. **Every task is executed through a skill.** No skill → no action. State `"Skill gap detected."` if none applies.
 4. **Load the SKILL.md file before generating any output.** The name is not the protocol. The file is.
 5. **Every commit body must include `what:`, `why:`, `breaking:`.** Empty fields break the RAG system.
@@ -12,7 +12,7 @@
 ## Execution Flow
 
 ```
-task → query memory (if existing code) → load skill → execute → commit → wait for /clear
+task → query memory → load skill → execute → commit → wait for /clear
 ```
 
 ## Stack

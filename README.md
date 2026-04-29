@@ -40,7 +40,7 @@ This mounts your current directory into the container and runs the CLI. Use `-it
 
 #### `setup-agent`
 
-Bootstraps the full agent scaffold in the current directory.
+Bootstraps the full agent scaffold in the current directory and initializes both memory databases.
 
 ```bash
 java -jar target/agent.jar setup-agent
@@ -62,21 +62,13 @@ java -jar target/agent.jar setup-agent
 
 | What is created | Tool |
 |-----------------|------|
-| `.agents/rules.md`, `.agents/skills/`, `.agents/scripts/`, `.agents/memory/`, `.agents/agents-compose.yml` | Always |
+| `.agents/rules.md`, `.agents/skills/`, `.agents/scripts/`, `.agents/memory/` | Always |
 | `.git/hooks/post-commit` | Always |
 | `.claude/settings.json`, `CLAUDE.md → .agents/rules.md`, `.claude/skills → .agents/skills/` | Claude Code |
 | `.kiro/hooks/post-commit-clear.yaml`, `.kiro/skills → .agents/skills/`, `.kiro/steering/project-rules.md` | Kiro |
 | `AGENTS.md → .agents/rules.md` | OpenCode |
 
-#### ChromaDB (optional)
-
-The scaffold includes a Compose file for ChromaDB, the vector search backend used by the memory system:
-
-```bash
-docker compose -f .agents/agents-compose.yml up -d
-```
-
-This starts ChromaDB on port 8765. Without it, memory queries fall back to keyword search over `memory.jsonl`.
+4. Automatically runs `bootstrap.sh` to populate both memory databases from the full git history.
 
 #### `scan-git`
 
@@ -90,6 +82,70 @@ Outputs: identity, remotes, branches, active hooks, full config, status, and las
 
 ---
 
+## Memory & Search Strategy
+
+The memory system stores every commit as diff-hunk records and exposes them through two complementary layers.
+
+### Dual-layer storage
+
+```
+git commit
+    │
+    ├── Pass 1: extract_changes.py ──→ .agents/memory/memory.jsonl   (flat JSONL)
+    ├── Pass 2: sync-to-chroma.py  ──→ .agents/memory/chroma/        (vector DB)
+    └── Pass 3: generate-changelog.py → CHANGELOG.md
+```
+
+Both layers are populated on every commit via `.git/hooks/post-commit`. No Docker, no external server — ChromaDB runs as a local `PersistentClient` embedded in Python.
+
+### Search priority
+
+```
+query-memory.py "<query>"
+        │
+        ├── 1. ChromaDB (semantic)   ← default, ranks by meaning
+        │       model: all-MiniLM-L6-v2 (local, no API calls, no tokens)
+        │       returns: top-N results ordered by cosine similarity
+        │
+        └── 2. JSONL keyword fallback  ← activates if Chroma is unavailable
+                searches: symbol, file, intent, hunk_content, tags
+                returns: all matches sorted by keyword hit count
+```
+
+Chroma is always preferred because it understands intent — a query for `"inicializar memoria"` finds `bootstrap.sh` even if the word "inicializar" never appears in the file. The keyword fallback is exact-match only and returns raw volume.
+
+### Usage
+
+```bash
+# Semantic search (uses Chroma)
+python3 .agents/scripts/query-memory.py "setup agent bootstrap"
+
+# Force keyword fallback (bypass Chroma)
+python3 .agents/scripts/query-memory.py "setup agent bootstrap" --no-chroma
+
+# Filter by record type
+python3 .agents/scripts/query-memory.py "chroma sync" --type change
+python3 .agents/scripts/query-memory.py "PersistentClient" --type symbol
+
+# Full rebuild of both databases from git history
+bash .agents/scripts/bootstrap.sh
+```
+
+### No tokens consumed
+
+The entire memory pipeline — extraction, indexing, and querying — runs locally:
+
+| Operation | Tool | AI / Tokens |
+|-----------|------|-------------|
+| Extract hunks | `extract_changes.py` (git + Python) | None |
+| Index to Chroma | `sync-to-chroma.py` + `all-MiniLM-L6-v2` | None (local model) |
+| Semantic query | `query-memory.py` + Chroma | None (local model) |
+| Keyword fallback | `query-memory.py` + JSONL scan | None |
+
+OpenAI embeddings are available via `--openai` flag if higher accuracy is needed, but not required.
+
+---
+
 ## Multi-Agent Architecture
 
 ```
@@ -98,14 +154,15 @@ repo/
 ├── .agents/                        ← central core, source of truth
 │   ├── rules.md                    ← project rules (canonical)
 │   ├── memory/                     ← context shared between agents
-│   │   └── memory.jsonl            ← diff-hunk records (RAG index)
+│   │   ├── memory.jsonl            ← diff-hunk records (JSONL index)
+│   │   └── chroma/                 ← vector DB (local, gitignored)
 │   ├── scripts/                    ← environment utilities
 │   └── skills/                     ← canonical skills
 │       └── <skill-name>/
 │           └── SKILL.md
 │
 ├── .claude/                        ← Claude Code config
-│   ├── settings.json
+│   ├── settings.json               ← PostToolUse hook → post-commit-clear.sh
 │   ├── hooks/
 │   └── skills/ → ../.agents/skills/
 │
@@ -114,7 +171,7 @@ repo/
 │   ├── steering/project-rules.md → ../../.agents/rules.md
 │   └── skills/ → ../.agents/skills/
 │
-├── .git/hooks/post-commit          ← records diff hunks to memory.jsonl
+├── .git/hooks/post-commit          ← populates memory.jsonl + Chroma on every commit
 ├── AGENTS.md → .agents/rules.md   ← OpenCode entry point
 └── CLAUDE.md → .agents/rules.md   ← Claude Code entry point
 ```
