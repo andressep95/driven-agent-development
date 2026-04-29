@@ -1,58 +1,109 @@
 # Driven Agent Development
 
-A skill-driven protocol for AI coding agents (Claude Code, Kiro, etc.).
+A skill-driven protocol for AI coding agents (Claude Code, Kiro, OpenCode).
 Instead of improvising, the agent consults a library of skills before acting.
 Every commit is tracked at the diff-hunk level and stored in a searchable memory.
 
-# Multi-Agent Architecture
+## CLI
+
+The project ships a Java CLI (`agent.jar`) built with Maven and Picocli.
+
+### Build
+
+```bash
+mvn package
+# produces target/agent.jar
+```
+
+### Commands
+
+#### `setup-agent`
+
+Bootstraps the full agent scaffold in the current directory.
+
+```bash
+java -jar target/agent.jar setup-agent
+```
+
+1. Detects whether a git repository exists — offers to run `git init` if not.
+2. Presents an interactive TUI checklist to select which AI tools to configure:
+
+```
+[setup-agent] Select AI tools to configure:
+  ↑↓ navigate  ·  Space toggle  ·  Enter confirm
+
+  > [x] Claude Code
+    [x] Kiro
+    [x] OpenCode
+```
+
+3. Extracts the scaffold from the JAR and creates the following structure based on the selected tools:
+
+| What is created | Tool |
+|-----------------|------|
+| `.agents/rules.md`, `.agents/skills/`, `.agents/scripts/`, `.agents/memory/` | Always |
+| `.git/hooks/post-commit` | Always |
+| `.claude/settings.json`, `CLAUDE.md → .agents/rules.md`, `.claude/skills → .agents/skills/` | Claude Code |
+| `.kiro/hooks/post-commit-clear.yaml`, `.kiro/skills → .agents/skills/`, `.kiro/steering/project-rules.md` | Kiro |
+| `AGENTS.md → .agents/rules.md` | OpenCode |
+
+#### `scan-git`
+
+Prints a diagnostic snapshot of the current git repository.
+
+```bash
+java -jar target/agent.jar scan-git
+```
+
+Outputs: identity, remotes, branches, active hooks, full config, status, and last 10 commits.
+
+---
+
+## Multi-Agent Architecture
 
 ```
 repo/
 │
 ├── .agents/                        ← central core, source of truth
 │   ├── rules.md                    ← project rules (canonical)
-│   ├── architecture.md             ← this file
 │   ├── memory/                     ← context shared between agents
-│   │   ├── context.md              ← current project state
-│   │   └── decisions.md            ← architecture/design decisions
-│   ├── hooks/                      ← shared hook scripts
-│   │   ├── pre-commit.sh
-│   │   └── post-task.sh
-│   ├── scripts/                    ← multi-agent environment utilities
-│   │   └── sync-rules.sh           ← regenerates symlinks if needed
-│   └── skills/                     ← canonical skills (source of truth)
-│       └── skill-name/
+│   │   └── memory.jsonl            ← diff-hunk records (RAG index)
+│   ├── scripts/                    ← environment utilities
+│   └── skills/                     ← canonical skills
+│       └── <skill-name>/
 │           └── SKILL.md
 │
-├── .kiro/                          ← Kiro-specific
-│   ├── project_rules.md            ← symlink → ../.agents/rules.md
-│   └── skills/                     ← symlinks → .agents/skills/...
+├── .claude/                        ← Claude Code config
+│   ├── settings.json
+│   ├── hooks/
+│   └── skills/ → ../.agents/skills/
 │
-├── .opencode/                      ← OpenCode-specific
-│   ├── skills/                     ← symlinks → .agents/skills/...
-│   └── memory/                     ← symlink → ../.agents/memory/
+├── .kiro/                          ← Kiro config
+│   ├── hooks/
+│   ├── steering/project-rules.md → ../../.agents/rules.md
+│   └── skills/ → ../.agents/skills/
 │
-├── AGENTS.md                       ← symlink → .agents/rules.md  (OpenCode)
-├── CLAUDE.md                       ← symlink → .agents/rules.md  (Claude Code)
-└── skills-lock.json                ← registry of installed skills
+├── .git/hooks/post-commit          ← records diff hunks to memory.jsonl
+├── AGENTS.md → .agents/rules.md   ← OpenCode entry point
+└── CLAUDE.md → .agents/rules.md   ← Claude Code entry point
 ```
 
-## Guiding Principle
+**Guiding principle:** if something is needed by more than one agent, it lives in `.agents/`.
+Agent-specific config lives in the agent's own folder. Root files are always symlinks, never content.
 
-If something is needed by more than one agent, it lives in `.agents/`.
-If it's exclusive to a single agent (config format, steering), it lives in the agent's own folder.
-Root files and agent folders are **always symlinks**, never actual content.
+## Skill Protocol
 
-## Responsibility Table
+Every task the agent executes follows this flow:
 
-| Layer                 | Where it lives              | What it contains                        |
-| --------------------- | --------------------------- | --------------------------------------- |
-| Project rules        | .agents/rules.md            | What all agents must know              |
-| --------------------- | --------------------------- | --------------------------------------- |
-| Shared memory        | .agents/memory/             | Context that persists between sessions |
-| --------------------- | --------------------------- | --------------------------------------- |
-| Canonical skills    | .agents/skills/             | Code review, prompts, etc.               |
-| --------------------- | --------------------------- | --------------------------------------- |
-| Agent config        | .[agent]/                  | Steering, preferences, etc.             |
-| --------------------- | --------------------------- | --------------------------------------- |
-| Public docs         | AGENTS.md, CLAUDE.md, etc.  | Symlinks, never actual content         |
+```
+task → query memory → load SKILL.md → execute → commit → /clear
+```
+
+Skills live in `.agents/skills/<name>/SKILL.md`. See `CLAUDE.md` for the full skill table and auto-invoke rules.
+
+## Dependencies
+
+| Library | Version | Purpose |
+|---------|---------|---------|
+| Picocli | 4.7.7 | CLI parsing |
+| JLine | 3.27.1 | Interactive TUI (terminal raw mode) |
