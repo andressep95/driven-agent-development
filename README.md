@@ -68,7 +68,7 @@ java -jar target/agent.jar setup-agent
 | `.kiro/hooks/post-commit-clear.yaml`, `.kiro/skills → .agents/skills/`, `.kiro/steering/project-rules.md` | Kiro |
 | `AGENTS.md → .agents/rules.md` | OpenCode |
 
-4. Automatically runs `bootstrap.sh` to populate both memory databases from the full git history.
+4. Prints the command to initialize memory databases: `bash .agents/scripts/init.sh`
 
 #### `scan-git`
 
@@ -112,7 +112,7 @@ query-memory.py "<query>"
                 returns: all matches sorted by keyword hit count
 ```
 
-Chroma is always preferred because it understands intent — a query for `"inicializar memoria"` finds `bootstrap.sh` even if the word "inicializar" never appears in the file. The keyword fallback is exact-match only and returns raw volume.
+Chroma is always preferred because it understands intent — a query for `"inicializar memoria"` finds `init.sh` even if the word "inicializar" never appears in the file. The keyword fallback is exact-match only and returns raw volume.
 
 ### Usage
 
@@ -128,7 +128,7 @@ python3 .agents/scripts/query-memory.py "chroma sync" --type change
 python3 .agents/scripts/query-memory.py "PersistentClient" --type symbol
 
 # Full rebuild of both databases from git history
-bash .agents/scripts/bootstrap.sh
+bash .agents/scripts/init.sh
 ```
 
 ### No tokens consumed

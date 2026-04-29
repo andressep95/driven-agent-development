@@ -29,7 +29,7 @@ extractor invoked by the post-commit hook — so the schema is always consistent
 - First time any dev (or agent) clones the project
 - `memory.jsonl` is empty or returns no results
 - After a large refactor that moves or renames multiple files
-- Manually triggered: `bash .agents/scripts/bootstrap.sh`
+- Manually triggered: `bash .agents/scripts/init.sh`
 
 ---
 
@@ -49,10 +49,10 @@ header) are skipped.
 ### Step 2 — (Shortcut) Bootstrap + Chroma sync
 
 ```bash
-bash .agents/scripts/bootstrap.sh
+bash .agents/scripts/init.sh
 ```
 
-`bootstrap.sh` runs `scan-history.sh` → `sync-to-chroma.py` in sequence.
+`init.sh` runs `scan-history.sh` → `sync-to-chroma.py` in sequence.
 
 ### Step 3 — Sync to Chroma (optional)
 

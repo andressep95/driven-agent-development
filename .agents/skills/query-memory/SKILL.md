@@ -74,8 +74,8 @@ No configuration needed — the fallback is transparent.
 Before querying, ensure memory exists:
 
 ```bash
-# Full bootstrap: scan Java files + push to Chroma
-bash .agents/scripts/bootstrap.sh
+# Full init: scan Java files + push to Chroma
+bash .agents/scripts/init.sh
 
 # Or push existing memory.jsonl to Chroma only
 python3 .agents/scripts/sync-to-chroma.py

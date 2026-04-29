@@ -98,8 +98,8 @@ public class SetupAgentCommand implements Callable<Integer> {
             }
 
             System.out.println("\n[setup-agent] Done.");
-            System.out.println("\n[setup-agent] Initializing memory databases...");
-            runBootstrap();
+            System.out.println("\n[setup-agent] To initialize memory databases, run:");
+            System.out.println("    bash .agents/scripts/init.sh");
             return 0;
 
         } catch (Exception e) {
@@ -310,22 +310,6 @@ public class SetupAgentCommand implements Callable<Integer> {
         }
     }
 
-    private void runBootstrap() {
-        Path bootstrap = root.resolve(".agents/scripts/bootstrap.sh");
-        if (!Files.exists(bootstrap)) {
-            System.out.println("  [bootstrap] bootstrap.sh not found — skipping.");
-            return;
-        }
-        try {
-            ProcessBuilder pb = new ProcessBuilder("bash", bootstrap.toString());
-            pb.directory(root.toFile());
-            pb.inheritIO();
-            int code = pb.start().waitFor();
-            if (code != 0) System.err.println("  [bootstrap] Exited with code " + code + ".");
-        } catch (Exception e) {
-            System.err.println("  [bootstrap] ERROR: " + e.getMessage());
-        }
-    }
 
     private int initRepo() {
         try {
