@@ -62,11 +62,21 @@ java -jar target/agent.jar setup-agent
 
 | What is created | Tool |
 |-----------------|------|
-| `.agents/rules.md`, `.agents/skills/`, `.agents/scripts/`, `.agents/memory/` | Always |
+| `.agents/rules.md`, `.agents/skills/`, `.agents/scripts/`, `.agents/memory/`, `.agents/agents-compose.yml` | Always |
 | `.git/hooks/post-commit` | Always |
 | `.claude/settings.json`, `CLAUDE.md → .agents/rules.md`, `.claude/skills → .agents/skills/` | Claude Code |
 | `.kiro/hooks/post-commit-clear.yaml`, `.kiro/skills → .agents/skills/`, `.kiro/steering/project-rules.md` | Kiro |
 | `AGENTS.md → .agents/rules.md` | OpenCode |
+
+#### ChromaDB (optional)
+
+The scaffold includes a Compose file for ChromaDB, the vector search backend used by the memory system:
+
+```bash
+docker compose -f .agents/agents-compose.yml up -d
+```
+
+This starts ChromaDB on port 8765. Without it, memory queries fall back to keyword search over `memory.jsonl`.
 
 #### `scan-git`
 
