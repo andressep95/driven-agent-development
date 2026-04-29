@@ -18,6 +18,7 @@ mvn package
 ### Docker
 
 ```bash
+docker pull ghcr.io/andressep95/driven-agent-development:main
 docker run --rm -v "$PWD:/project" -w /project ghcr.io/andressep95/driven-agent-development:main setup-agent
 ```
 
