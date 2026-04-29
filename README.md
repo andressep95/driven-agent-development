@@ -15,6 +15,14 @@ mvn package
 # produces target/agent.jar
 ```
 
+### Docker
+
+```bash
+docker run --rm -v "$PWD:/project" -w /project ghcr.io/andressep95/driven-agent-development:main setup-agent
+```
+
+This mounts your current directory into the container and runs the CLI. Replace `setup-agent` with any command.
+
 ### Commands
 
 #### `setup-agent`
