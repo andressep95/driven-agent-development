@@ -70,7 +70,6 @@ public class SetupAgentCommand implements Callable<Integer> {
         try {
             // ── shared ────────────────────────────────────────────────────────
             extractFile("rules.md", ".agents/rules.md");
-            extractFile("agents-compose.yml", ".agents/agents-compose.yml");
             extractDir("skills/",   ".agents/skills/");
             extractDir("scripts/",  ".agents/scripts/");
             makeAllExecutable(".agents/scripts/");
@@ -99,7 +98,8 @@ public class SetupAgentCommand implements Callable<Integer> {
             }
 
             System.out.println("\n[setup-agent] Done.");
-            System.out.println("  Next: fill in '## Stack' in .agents/rules.md, then run scan-memory.");
+            System.out.println("\n[setup-agent] Initializing memory databases...");
+            runBootstrap();
             return 0;
 
         } catch (Exception e) {
@@ -307,6 +307,23 @@ public class SetupAgentCommand implements Callable<Integer> {
             return !out.startsWith("fatal:");
         } catch (Exception e) {
             return false;
+        }
+    }
+
+    private void runBootstrap() {
+        Path bootstrap = root.resolve(".agents/scripts/bootstrap.sh");
+        if (!Files.exists(bootstrap)) {
+            System.out.println("  [bootstrap] bootstrap.sh not found — skipping.");
+            return;
+        }
+        try {
+            ProcessBuilder pb = new ProcessBuilder("bash", bootstrap.toString());
+            pb.directory(root.toFile());
+            pb.inheritIO();
+            int code = pb.start().waitFor();
+            if (code != 0) System.err.println("  [bootstrap] Exited with code " + code + ".");
+        } catch (Exception e) {
+            System.err.println("  [bootstrap] ERROR: " + e.getMessage());
         }
     }
 

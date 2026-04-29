@@ -4,7 +4,6 @@
     { "from": "rules.md",                          "to": ".agents/rules.md" },
     { "from": "skills/",                           "to": ".agents/skills/" },
     { "from": "scripts/",                          "to": ".agents/scripts/" },
-    { "from": "chroma/docker-compose.yml",         "to": ".agents/chroma/docker-compose.yml" },
     { "from": ".claude/settings.json",             "to": ".claude/settings.json" },
     { "from": ".kiro/hooks/post-commit-clear.yaml","to": ".kiro/hooks/post-commit-clear.yaml" }
   ],
