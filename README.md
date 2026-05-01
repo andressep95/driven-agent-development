@@ -2,18 +2,22 @@
 
 A skill-driven protocol for AI coding agents (Claude Code, Kiro, OpenCode).
 Instead of improvising, the agent consults a library of skills before acting.
-Every commit is tracked at the diff-hunk level and stored in a searchable memory.
+Hooks enforce behavior by code — not by text rules the agent can ignore.
 
-## CLI
-
-The project ships a Java CLI (`agent.jar`) built with Maven and Picocli.
-
-### Build
+## Quick Start
 
 ```bash
+# Build
 mvn package
-# produces target/agent.jar
+
+# Bootstrap scaffold
+java -jar target/agent.jar setup-agent
+
+# Initialize memory (git history + skills → Chroma)
+bash .agents/scripts/init.sh
 ```
+
+## CLI
 
 ### Docker
 
@@ -22,176 +26,177 @@ docker pull ghcr.io/andressep95/driven-agent-development:main
 docker run --rm -it -v "$PWD:/project" -w /project ghcr.io/andressep95/driven-agent-development:main setup-agent
 ```
 
-On Windows, replace `$PWD`:
-
-```powershell
-# PowerShell
-docker run --rm -it -v "${PWD}:/project" -w /project ghcr.io/andressep95/driven-agent-development:main setup-agent
-```
-
-```cmd
-# CMD
-docker run --rm -it -v "%cd%:/project" -w /project ghcr.io/andressep95/driven-agent-development:main setup-agent
-```
-
-This mounts your current directory into the container and runs the CLI. Use `-it` for interactive commands (tool selection TUI). Replace `setup-agent` with any command.
-
 ### Commands
 
 #### `setup-agent`
 
-Bootstraps the full agent scaffold in the current directory and initializes both memory databases.
-
-```bash
-java -jar target/agent.jar setup-agent
-```
-
-1. Detects whether a git repository exists — offers to run `git init` if not.
-2. Presents an interactive TUI checklist to select which AI tools to configure:
-
-```
-[setup-agent] Select AI tools to configure:
-  ↑↓ navigate  ·  Space toggle  ·  Enter confirm
-
-  > [x] Claude Code
-    [x] Kiro
-    [x] OpenCode
-```
-
-3. Extracts the scaffold from the JAR and creates the following structure based on the selected tools:
+Bootstraps the full agent scaffold. Interactive TUI lets you select which AI tools to configure.
 
 | What is created | Tool |
 |-----------------|------|
 | `.agents/rules.md`, `.agents/skills/`, `.agents/scripts/`, `.agents/memory/` | Always |
 | `.git/hooks/post-commit` | Always |
-| `.claude/settings.json`, `CLAUDE.md → .agents/rules.md`, `.claude/skills → .agents/skills/` | Claude Code |
-| `.kiro/hooks/post-commit-clear.yaml`, `.kiro/skills → .agents/skills/`, `.kiro/steering/project-rules.md` | Kiro |
-| `AGENTS.md → .agents/rules.md` | OpenCode |
-
-4. Prints the command to initialize memory databases: `bash .agents/scripts/init.sh`
+| `.claude/settings.json`, `CLAUDE.md`, `.claude/skills/` | Claude Code |
+| `.kiro/hooks/*.yaml`, `.kiro/skills/`, `.kiro/steering/project-rules.md` | Kiro |
+| `AGENTS.md` | OpenCode |
 
 #### `scan-git`
 
 Prints a diagnostic snapshot of the current git repository.
 
-```bash
-java -jar target/agent.jar scan-git
+---
+
+## Hooks — Behavior Enforced by Code
+
+Hooks intercept agent lifecycle events and inject context or block actions automatically. The agent cannot ignore them.
+
+| Hook | Event | What it does |
+|------|-------|-------------|
+| `session-start.sh` | SessionStart | Auto-detects project stack (Java/Node/Rust/Go/Python + Docker/Terraform) and injects it |
+| `user-prompt-submit.sh` | UserPromptSubmit | Finds relevant skill via Chroma semantic search + injects prior context from memory |
+| `validate-commit.sh` | PreToolUse | Blocks `git commit` if body is missing `what:`, `why:`, `breaking:` fields |
+| `post-commit-clear.sh` | PostToolUse | Reminds agent to request `/clear` after each commit |
+
+### How UserPromptSubmit works
+
+```
+User writes: "crear endpoint de autenticación JWT"
+  │
+  ├─ Queries Chroma 'skills' collection (semantic, cross-language)
+  │    → openapi (86%), endpoint-trace (85%)
+  │
+  ├─ Queries Chroma 'changes' collection
+  │    → 5 most relevant prior changes in the project
+  │
+  └─ Injects as additionalContext:
+       "## Relevant Skill: openapi
+        Load and follow: .agents/skills/openapi/SKILL.md
+        
+        ## Prior Context from Memory (Chroma)
+        [relevant prior changes]"
 ```
 
-Outputs: identity, remotes, branches, active hooks, full config, status, and last 10 commits.
+The agent receives precise context before responding — no need to read the entire project.
+
+### Adding new hooks
+
+See [docs/extending-hooks.md](docs/extending-hooks.md) for a complete guide with recipes.
 
 ---
 
-## Memory & Search Strategy
+## Memory — Git → Chroma Direct
 
-The memory system stores every commit as diff-hunk records and exposes them through two complementary layers.
-
-### Dual-layer storage
+Git is the source of truth. Chroma is the search layer. No intermediaries.
 
 ```
 git commit
     │
-    ├── Pass 1: extract_changes.py ──→ .agents/memory/memory.jsonl   (flat JSONL)
-    ├── Pass 2: sync-to-chroma.py  ──→ .agents/memory/chroma/        (vector DB)
-    └── Pass 3: generate-changelog.py → CHANGELOG.md
+    ├── extract_changes.py ──→ .agents/memory/chroma/  (vector DB, direct)
+    └── generate-changelog.py → CHANGELOG.md
 ```
 
-Both layers are populated on every commit via `.git/hooks/post-commit`. No Docker, no external server — ChromaDB runs as a local `PersistentClient` embedded in Python.
+### How it works
 
-### Search priority
+- **On every commit:** `post-commit` hook runs `extract_changes.py` which parses the diff and indexes each hunk directly into ChromaDB
+- **On init:** `scan-history.sh` replays the full git history into Chroma in a single Python process (model loads once)
+- **On skill changes:** `sync.sh` updates rules.md tables + re-indexes skills in Chroma
 
-```
-query-memory.py "<query>"
-        │
-        ├── 1. ChromaDB (semantic)   ← default, ranks by meaning
-        │       model: all-MiniLM-L6-v2 (local, no API calls, no tokens)
-        │       returns: top-N results ordered by cosine similarity
-        │
-        └── 2. JSONL keyword fallback  ← activates if Chroma is unavailable
-                searches: symbol, file, intent, hunk_content, tags
-                returns: all matches sorted by keyword hit count
-```
+### Embedding model
 
-Chroma is always preferred because it understands intent — a query for `"inicializar memoria"` finds `init.sh` even if the word "inicializar" never appears in the file. The keyword fallback is exact-match only and returns raw volume.
+Uses `intfloat/multilingual-e5-small` — a multilingual sentence transformer that runs 100% locally. No API keys, no server, no cost.
+
+- Downloads once (~500MB) to `~/.cache/huggingface/`
+- Cross-language: Spanish prompts match English skill descriptions at 85-89% accuracy
+- Cosine similarity search via ChromaDB `PersistentClient`
+
+### What Chroma stores per record
+
+| Metadata field | Purpose |
+|----------------|---------|
+| `file` / `lines_start` / `lines_end` | Exact location |
+| `intent` | Commit subject line |
+| `what` / `why` | From commit body — feeds semantic search |
+| `author` / `ts` | Who made the change and when |
+| `commit` / `branch` | Git reference for `git show` |
+| `language` / `file_kind` | Auto-detected from extension |
+| `tags` | Composite of commit_type, change_type, kind, scope |
 
 ### Usage
 
 ```bash
-# Semantic search (uses Chroma)
-python3 .agents/scripts/query-memory.py "setup agent bootstrap"
+# Semantic search
+python3 .agents/scripts/query-memory.py "autenticación JWT"
 
-# Force keyword fallback (bypass Chroma)
-python3 .agents/scripts/query-memory.py "setup agent bootstrap" --no-chroma
+# Filter by kind
+python3 .agents/scripts/query-memory.py "pagination" --kind service
 
-# Filter by record type
-python3 .agents/scripts/query-memory.py "chroma sync" --type change
-python3 .agents/scripts/query-memory.py "PersistentClient" --type symbol
-
-# Full rebuild of both databases from git history
+# Full rebuild from git history
 bash .agents/scripts/init.sh
 ```
 
 ### No tokens consumed
 
-The entire memory pipeline — extraction, indexing, and querying — runs locally:
-
 | Operation | Tool | AI / Tokens |
 |-----------|------|-------------|
 | Extract hunks | `extract_changes.py` (git + Python) | None |
-| Index to Chroma | `sync-to-chroma.py` + `all-MiniLM-L6-v2` | None (local model) |
-| Semantic query | `query-memory.py` + Chroma | None (local model) |
-| Keyword fallback | `query-memory.py` + JSONL scan | None |
-
-OpenAI embeddings are available via `--openai` flag if higher accuracy is needed, but not required.
+| Index to Chroma | `multilingual-e5-small` (local) | None |
+| Semantic query | `query-memory.py` + Chroma | None |
+| Skill matching | `user-prompt-submit.sh` + Chroma | None |
 
 ---
 
-## Multi-Agent Architecture
+## Skill Protocol
+
+```
+task → [hook injects memory + skill hint] → load skill → execute → commit → /clear
+```
+
+Skills live in `.agents/skills/<name>/SKILL.md`. The `UserPromptSubmit` hook finds the right skill automatically via semantic search. The agent loads the SKILL.md and follows its protocol.
+
+### Syncing skills
+
+```bash
+# Sync skill tables in rules.md + re-index in Chroma
+bash .agents/scripts/sync.sh
+```
+
+This updates Available Skills and Auto-Invoke tables in `rules.md` (which `CLAUDE.md` and `.kiro/steering/project-rules.md` symlink to) and re-indexes all skills in Chroma's `skills` collection.
+
+---
+
+## Architecture
 
 ```
 repo/
-│
 ├── .agents/                        ← central core, source of truth
 │   ├── rules.md                    ← project rules (canonical)
-│   ├── memory/                     ← context shared between agents
-│   │   ├── memory.jsonl            ← diff-hunk records (JSONL index)
+│   ├── memory/
 │   │   └── chroma/                 ← vector DB (local, gitignored)
-│   ├── scripts/                    ← environment utilities
+│   ├── scripts/                    ← hooks, extractors, sync
 │   └── skills/                     ← canonical skills
-│       └── <skill-name>/
-│           └── SKILL.md
+│       └── <skill-name>/SKILL.md
 │
 ├── .claude/                        ← Claude Code config
-│   ├── settings.json               ← PostToolUse hook → post-commit-clear.sh
-│   ├── hooks/
+│   ├── settings.json               ← hooks: SessionStart, UserPromptSubmit, PreToolUse, PostToolUse
 │   └── skills/ → ../.agents/skills/
 │
 ├── .kiro/                          ← Kiro config
-│   ├── hooks/
+│   ├── hooks/*.yaml                ← same hooks as Claude, yaml format
 │   ├── steering/project-rules.md → ../../.agents/rules.md
 │   └── skills/ → ../.agents/skills/
 │
-├── .git/hooks/post-commit          ← populates memory.jsonl + Chroma on every commit
-├── AGENTS.md → .agents/rules.md   ← OpenCode entry point
-└── CLAUDE.md → .agents/rules.md   ← Claude Code entry point
+├── .git/hooks/post-commit          ← indexes each commit into Chroma
+├── AGENTS.md → .agents/rules.md    ← OpenCode entry point
+└── CLAUDE.md → .agents/rules.md    ← Claude Code entry point
 ```
 
-**Guiding principle:** if something is needed by more than one agent, it lives in `.agents/`.
-Agent-specific config lives in the agent's own folder. Root files are always symlinks, never content.
-
-## Skill Protocol
-
-Every task the agent executes follows this flow:
-
-```
-task → query memory → load SKILL.md → execute → commit → /clear
-```
-
-Skills live in `.agents/skills/<name>/SKILL.md`. See `CLAUDE.md` for the full skill table and auto-invoke rules.
+**Principle:** shared content lives in `.agents/`. Agent-specific config lives in the agent's folder. Root files are symlinks, never content.
 
 ## Dependencies
 
 | Library | Version | Purpose |
 |---------|---------|---------|
 | Picocli | 4.7.7 | CLI parsing |
-| JLine | 3.27.1 | Interactive TUI (terminal raw mode) |
+| JLine | 3.27.1 | Interactive TUI |
+| ChromaDB | 1.5.8 | Vector search (Python, local) |
+| sentence-transformers | ≥2.2.0 | Multilingual embeddings (local) |
