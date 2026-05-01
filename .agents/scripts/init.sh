@@ -5,26 +5,64 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$ROOT"
+
+REQUIREMENTS="$SCRIPT_DIR/requirements.txt"
+
+# ── Check python3 ──────────────────────────────────────────────────────────
+if ! command -v python3 &>/dev/null; then
+    echo "[init] ERROR: python3 not found. Install Python 3.9+ and try again."
+    exit 1
+fi
+
+# ── Check & install Python dependencies ────────────────────────────────────
+missing=false
+if ! python3 -c "import chromadb" &>/dev/null; then
+    missing=true
+fi
+
+if [ "$missing" = true ]; then
+    echo "[init] Missing Python dependencies (chromadb)."
+    if [ -t 0 ]; then
+        printf "[init] Install them now? (pip install -r requirements.txt) [Y/n]: "
+        read -r answer
+        answer="${answer:-Y}"
+        if [[ ! "$answer" =~ ^[Yy]$ ]]; then
+            echo "[init] Skipped. Install manually:"
+            echo "    pip install -r $REQUIREMENTS"
+            echo "[init] Continuing without Chroma support..."
+            SKIP_CHROMA=true
+        fi
+    else
+        echo "[init] Non-interactive mode — installing automatically."
+    fi
+
+    if [ "${SKIP_CHROMA:-}" != "true" ]; then
+        echo "[init] Installing Python dependencies..."
+        if pip install -r "$REQUIREMENTS"; then
+            echo "[init] Dependencies installed."
+        else
+            echo "[init] WARNING: pip install failed. Continuing without Chroma."
+            echo "    Try manually: pip install -r $REQUIREMENTS"
+            SKIP_CHROMA=true
+        fi
+    fi
+fi
+
+# ── Memory bootstrap ──────────────────────────────────────────────────────
 echo "=== Memory Bootstrap ==="
+
 echo "[1/2] Replaying git history..."
 bash "$SCRIPT_DIR/scan-history.sh"
+
 echo "[2/2] Syncing to Chroma..."
-PYTHON=""
-for cmd in python3 python py; do
-    if command -v "$cmd" &>/dev/null && "$cmd" -c "import sys; sys.exit(0)" 2>/dev/null; then
-        PYTHON="$cmd"
-        break
-    fi
-done
-if [ -z "$PYTHON" ]; then
-    echo "  [skip] python not found — memory.jsonl is populated."
-    echo "  Run this manually on your machine to index Chroma:"
-    echo "    python3 .agents/scripts/sync-to-chroma.py"
+if [ "${SKIP_CHROMA:-}" = "true" ]; then
+    echo "  [skip] Chroma sync skipped — missing dependencies."
+    echo "  memory.jsonl is populated. Install deps and re-run to enable semantic search."
+elif python3 -c "import chromadb" &>/dev/null; then
+    python3 "$SCRIPT_DIR/sync-to-chroma.py"
 else
-    if ! "$PYTHON" -c "import chromadb" 2>/dev/null; then
-        echo "  [setup] Installing chromadb..."
-        "$PYTHON" -m pip install --quiet chromadb
-    fi
-    "$PYTHON" "$SCRIPT_DIR/sync-to-chroma.py"
+    echo "  [skip] chromadb not available — memory.jsonl is populated."
+    echo "  Run: pip install -r $REQUIREMENTS"
 fi
+
 echo "=== Done ==="

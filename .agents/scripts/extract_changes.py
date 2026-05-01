@@ -134,7 +134,14 @@ def main() -> None:
     ts      = run(f"git log -1 --format=%cI {ref}")[:10]
     intent  = run(f"git log -1 --format=%s {ref}")
     body    = run(f"git log -1 --format=%b {ref}")
-    branch  = run("git rev-parse --abbrev-ref HEAD")
+    if ref == "HEAD":
+        branch = run("git rev-parse --abbrev-ref HEAD")
+    else:
+        # Historical replay: find branches containing this commit, prefer main/master
+        raw = run(f"git branch --contains {ref} --format='%(refname:short)' 2>/dev/null")
+        candidates = [b.strip().strip("'") for b in raw.splitlines() if b.strip()]
+        main = [b for b in candidates if b in ("main", "master")]
+        branch = main[0] if main else (candidates[0] if candidates else "unknown")
     project = Path(run("git rev-parse --show-toplevel")).name
 
     what, why, breaking = "", "", False

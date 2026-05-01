@@ -9,17 +9,19 @@
 REPO_ROOT=$(git rev-parse --show-toplevel)
 SCRIPTS="$REPO_ROOT/.agents/scripts"
 
-# Pass 1 — extract hunks to memory.jsonl
+# Pass 1 — extract hunks to memory.jsonl (stdlib only, always works)
 if [ -f "$SCRIPTS/extract_changes.py" ]; then
     python3 "$SCRIPTS/extract_changes.py" 2>/dev/null || true
 fi
 
-# Pass 2 — sync new records to Chroma (idempotent, skips already-indexed)
+# Pass 2 — sync new records to Chroma (skip if chromadb not installed)
 if [ -f "$SCRIPTS/sync-to-chroma.py" ]; then
-    python3 "$SCRIPTS/sync-to-chroma.py" 2>/dev/null || true
+    if python3 -c "import chromadb" &>/dev/null; then
+        python3 "$SCRIPTS/sync-to-chroma.py" 2>/dev/null || true
+    fi
 fi
 
-# Pass 3 — regenerate changelog for notable commits
+# Pass 3 — regenerate changelog for notable commits (stdlib only)
 COMMIT_MSG=$(git log -1 --format=%s)
 COMMIT_TYPE=$(echo "$COMMIT_MSG" | grep -oE '^(feat|fix|refactor|perf|sec)' || true)
 IS_CHGLOG=$(echo "$COMMIT_MSG" | grep -qE '^chore(\(changelog\))?' && echo 1 || true)
