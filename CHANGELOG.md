@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### [c3bcb17] — 2026-04-30
+
+**feat(agent): add UserPromptSubmit hook for per-task context injection**
+
+> what: Injects matching skill name and Chroma memory results as
+> additionalContext before each user prompt is processed.
+> why:  Agents previously started every task cold; this hook surfaces
+> the relevant skill and prior change history automatically.
+
+_Run with jsonl enrichment for file-level detail._
+
+---
+
 ### [26c3784] — 2026-04-29
 
 **refactor(agent): rename bootstrap.sh to init.sh and remove Python from Docker**
