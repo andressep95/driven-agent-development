@@ -1,32 +1,21 @@
 #!/usr/bin/env python3
 """
-Regenerates CHANGELOG.md from the full git history or .agents/memory.jsonl.
+Regenerates CHANGELOG.md from the full git history.
 
-Format: each commit gets its own ## [hash] - date section.
-Within each section, files are grouped by what happened to them:
-  ### Added    — new files in this commit
-  ### Changed  — modified files
-  ### Removed  — deleted files
+Format: each commit gets its own ### [hash] - date section.
+Files are grouped by Added/Changed/Removed.
 
 Usage:
-  python3 .agents/scripts/generate-changelog.py                 # from git + jsonl enrichment
-  python3 .agents/scripts/generate-changelog.py --from-jsonl    # jsonl as commit source
-  python3 .agents/scripts/generate-changelog.py --from-jsonl path.jsonl
-  python3 .agents/scripts/generate-changelog.py --no-enrich     # skip file detail
+  python3 .agents/scripts/generate-changelog.py
   python3 .agents/scripts/generate-changelog.py --dry-run
   python3 .agents/scripts/generate-changelog.py --output path/CHANGELOG.md
 """
-import re, json, os, subprocess, argparse, sys
-from collections import defaultdict, OrderedDict
+import re, os, subprocess, argparse, sys
+from collections import OrderedDict
 
 ROOT      = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 CHANGELOG = os.path.join(ROOT, 'CHANGELOG.md')
-JSONL     = os.path.join(ROOT, '.agent', 'memory.jsonl')
-
-SECTION_ORDER = ['Added', 'Changed', 'Removed']
-
 SKIP_TYPES = {'chore', 'ci', 'test', 'docs', 'style', 'build', 'wip', 'merge', 'bump'}
-
 MAX_FILES = 20
 
 
@@ -61,59 +50,30 @@ def commits_from_git():
         body       = re.sub(r'<COMMIT>.*', '', body, flags=re.DOTALL).strip()
         body_lines = [
             ln for ln in body.splitlines()
-            if ln.strip() and not re.match(r'^(Co-Authored-By|Signed-off-by|Co-authored):', ln, re.I)
+            if ln.strip() and not re.match(r'^(Co-Authored-By|Signed-off-by):', ln, re.I)
         ]
-        body = '\n'.join(body_lines)
         if full_hash and short_hash and subject:
-            yield (full_hash, short_hash, subject, date, body)
+            yield (full_hash, short_hash, subject, date, '\n'.join(body_lines))
 
 
-def commits_from_jsonl(path):
-    seen = {}
-    with open(path) as f:
-        for raw in f:
-            raw = raw.strip()
-            if not raw:
-                continue
-            try:
-                e = json.loads(raw)
-            except json.JSONDecodeError:
-                continue
-            if e.get('type') != 'change':
-                continue
-            h = (e.get('commit') or '').strip()
-            if h and h not in seen:
-                seen[h] = (h, h, (e.get('intent') or '').strip(), (e.get('ts') or ''), '')
-    return sorted(seen.values(), key=lambda x: x[3])
-
-
-def load_hunk_index(jsonl_path):
-    index    = defaultdict(lambda: defaultdict(list))
-    seen_keys = defaultdict(set)
-    if not os.path.exists(jsonl_path):
-        return index
-    with open(jsonl_path) as f:
-        for raw in f:
-            raw = raw.strip()
-            if not raw:
-                continue
-            try:
-                e = json.loads(raw)
-            except json.JSONDecodeError:
-                continue
-            if e.get('type') != 'change':
-                continue
-            h      = (e.get('commit') or '').strip()
-            fpath  = (e.get('file') or '').strip()
-            symbol = (e.get('symbol') or '').strip()
-            ctype  = (e.get('change_type') or 'modification').strip()
-            if not h or not fpath:
-                continue
-            key = (fpath, ctype)
-            if key not in seen_keys[h]:
-                seen_keys[h].add(key)
-                index[h][ctype].append((fpath, symbol))
-    return index
+def get_file_changes(full_hash):
+    """Get Added/Changed/Removed files directly from git."""
+    changes = {'Added': [], 'Changed': [], 'Removed': []}
+    raw = git('git', 'diff-tree', '--no-commit-id', '-r', '--name-status', full_hash)
+    for line in raw.strip().splitlines():
+        if not line.strip():
+            continue
+        parts = line.split('\t', 1)
+        if len(parts) < 2:
+            continue
+        status, fpath = parts[0].strip(), parts[1].strip()
+        if status.startswith('A'):
+            changes['Added'].append(fpath)
+        elif status.startswith('D'):
+            changes['Removed'].append(fpath)
+        else:
+            changes['Changed'].append(fpath)
+    return changes
 
 
 def tags_by_hash():
@@ -131,7 +91,7 @@ def tags_by_hash():
 
 def bucket_commits(commits_iterable, tag_map):
     commits = list(commits_iterable)
-    tag_at  = {}
+    tag_at = {}
     for i, c in enumerate(commits):
         if c[0] in tag_map:
             tag_at[i] = (tag_map[c[0]], c[3])
@@ -162,118 +122,74 @@ def bucket_commits(commits_iterable, tag_map):
     return ordered
 
 
-def render_file_line(fpath, symbol):
-    sym_text = ''
-    if symbol and symbol != os.path.basename(fpath):
-        sym = symbol if len(symbol) <= 72 else symbol[:69] + '...'
-        sym_text = f' — {sym}'
-    return f'- `{fpath}`{sym_text}'
-
-
-def render_commit(commit, hunk_index, enrich):
+def render_commit(commit):
     short = commit['short_hash']
-    lines = []
-    lines.append(f'### [{short}] — {commit["date"]}')
-    lines.append('')
-    lines.append(f'**{commit["subject"]}**')
-    lines.append('')
+    lines = [f'### [{short}] — {commit["date"]}', '', f'**{commit["subject"]}**', '']
+
     if commit['body']:
         for ln in commit['body'].splitlines()[:4]:
             if ln.strip():
                 lines.append(f'> {ln.strip()}')
         lines.append('')
-    if enrich and short in hunk_index:
-        hunks_by_type = hunk_index[short]
-        has_files = False
-        for ctype, section_name in [('addition', 'Added'), ('modification', 'Changed'), ('deletion', 'Removed')]:
-            file_list = hunks_by_type.get(ctype, [])
-            if not file_list:
-                continue
-            has_files = True
-            lines.append(f'#### {section_name}')
-            lines.append('')
-            for fpath, symbol in file_list[:MAX_FILES]:
-                lines.append(render_file_line(fpath, symbol))
-            if len(file_list) > MAX_FILES:
-                lines.append(f'- _…and {len(file_list) - MAX_FILES} more_')
-            lines.append('')
-        if not has_files:
-            lines.append('_No file detail available in memory.jsonl._')
-            lines.append('')
-    else:
-        lines.append('_Run with jsonl enrichment for file-level detail._')
+
+    changes = get_file_changes(commit['full_hash'])
+    has_files = False
+    for section in ['Added', 'Changed', 'Removed']:
+        file_list = changes.get(section, [])
+        if not file_list:
+            continue
+        has_files = True
+        lines.extend([f'#### {section}', ''])
+        for fpath in file_list[:MAX_FILES]:
+            lines.append(f'- `{fpath}`')
+        if len(file_list) > MAX_FILES:
+            lines.append(f'- _…and {len(file_list) - MAX_FILES} more_')
         lines.append('')
+
+    if not has_files:
+        lines.extend(['_No file changes detected._', ''])
     return lines
 
 
-def render(buckets, hunk_index, enrich):
+def render(buckets):
     out = [
         '# Changelog', '',
         'All notable changes to this project will be documented in this file.', '',
         'The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).', '',
     ]
     for version, data in buckets.items():
-        if version == 'Unreleased':
-            out.append('## [Unreleased]')
-        else:
-            out.append(f'## [{version}] - {data["date"]}')
+        out.append(f'## [{version}]' if version == 'Unreleased' else f'## [{version}] - {data["date"]}')
         out.append('')
         if not data['commits']:
             out.extend(['_No commits yet._', '', '---', ''])
             continue
         for commit in reversed(data['commits']):
-            ctype, scope, desc, breaking = parse_subject(commit['subject'])
+            ctype, _, _, _ = parse_subject(commit['subject'])
             if ctype in SKIP_TYPES:
                 continue
-            out.extend(render_commit(commit, hunk_index, enrich))
+            out.extend(render_commit(commit))
             out.extend(['---', ''])
     return '\n'.join(out).rstrip() + '\n'
 
 
 def main():
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument('--from-jsonl', metavar='PATH', nargs='?', const=JSONL)
-    p.add_argument('--no-enrich',  action='store_true')
-    p.add_argument('--output',     default=CHANGELOG)
-    p.add_argument('--dry-run',    action='store_true')
+    p = argparse.ArgumentParser()
+    p.add_argument('--output',  default=CHANGELOG)
+    p.add_argument('--dry-run', action='store_true')
     args = p.parse_args()
 
-    print('=== Changelog Generator ===')
-    if args.from_jsonl:
-        src = args.from_jsonl
-        if not os.path.exists(src):
-            print(f'ERROR: {src} not found. Run scan-memory first.', file=sys.stderr)
-            sys.exit(1)
-        print(f'Source  : memory.jsonl ({src})')
-        commits = commits_from_jsonl(src)
-        jsonl_for_enrich = src
-    else:
-        print('Source  : git history')
-        commits = commits_from_git()
-        jsonl_for_enrich = JSONL
-
-    try:
-        tag_map = tags_by_hash()
-    except Exception:
-        tag_map = {}
-
-    enrich     = not args.no_enrich
-    hunk_index = load_hunk_index(jsonl_for_enrich) if enrich else {}
-    if enrich and hunk_index:
-        print(f'Enrich  : memory.jsonl ({len(hunk_index)} commits indexed)')
-
+    commits = commits_from_git()
+    tag_map = tags_by_hash() if not None else {}
     buckets = bucket_commits(commits, tag_map)
-    content = render(buckets, hunk_index, enrich)
+    content = render(buckets)
 
     if args.dry_run:
-        print('\n' + '─' * 60)
         print(content)
         return
 
     with open(args.output, 'w') as f:
         f.write(content)
-    print(f'Written : {args.output}')
-    print('=== Done ===')
+    print(f'[changelog] Written: {args.output}')
 
 
 if __name__ == '__main__':
