@@ -30,13 +30,21 @@ python3 -c "import chromadb" &>/dev/null && HAS_CHROMA=true
 SKILL_CTX=""
 if [ "$HAS_CHROMA" = true ]; then
   SKILL_CTX=$(python3 -c "
+import os
+os.environ['HF_HUB_DISABLE_TELEMETRY'] = '1'
+os.environ['TOKENIZERS_PARALLELISM'] = 'false'
+os.environ['HF_HUB_DISABLE_IMPLICIT_TOKEN'] = '1'
+
+import warnings
+warnings.filterwarnings('ignore', message='.*unauthenticated.*')
+
 import chromadb
 from chromadb.utils import embedding_functions
 import sys
 
 try:
     client = chromadb.PersistentClient(path='$CHROMA_PATH')
-    ef = embedding_functions.DefaultEmbeddingFunction()
+    ef = embedding_functions.SentenceTransformerEmbeddingFunction(model_name='intfloat/multilingual-e5-small')
     col = client.get_collection('skills', embedding_function=ef)
     r = col.query(query_texts=[sys.argv[1]], n_results=1)
     if r['ids'][0]:

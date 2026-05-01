@@ -2,6 +2,14 @@
 """
 Searches agent memory via ChromaDB semantic search.
 """
+import os
+os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+os.environ["HF_HUB_DISABLE_IMPLICIT_TOKEN"] = "1"
+
+import warnings
+warnings.filterwarnings("ignore", message=".*unauthenticated.*")
+
 import sys, argparse
 
 
@@ -65,7 +73,7 @@ def main():
 
     try:
         client = chromadb.PersistentClient(path=args.chroma)
-        ef = embedding_functions.DefaultEmbeddingFunction()
+        ef = embedding_functions.SentenceTransformerEmbeddingFunction(model_name="intfloat/multilingual-e5-small")
         collection = client.get_collection(args.collection, embedding_function=ef)
 
         where = {}

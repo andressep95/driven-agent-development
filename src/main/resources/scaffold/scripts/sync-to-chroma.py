@@ -38,7 +38,7 @@ def get_embedding_function(use_openai: bool):
             api_key=api_key,
             model_name="text-embedding-3-small",
         )
-    return embedding_functions.DefaultEmbeddingFunction()
+    return embedding_functions.SentenceTransformerEmbeddingFunction(model_name="intfloat/multilingual-e5-small")
 
 
 def build_metadata(r: dict) -> dict:

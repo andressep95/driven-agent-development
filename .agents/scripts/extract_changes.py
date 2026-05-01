@@ -5,6 +5,14 @@ Reads what/why/breaking from the commit body and the diff for exact location.
 No intermediate JSONL — git is the source of truth, Chroma is the search layer.
 """
 
+import os
+os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+os.environ["HF_HUB_DISABLE_IMPLICIT_TOKEN"] = "1"
+
+import warnings
+warnings.filterwarnings("ignore", message=".*unauthenticated.*")
+
 import re
 import subprocess
 from pathlib import Path
@@ -128,7 +136,7 @@ def main() -> None:
 
     # Chroma
     client = chromadb.PersistentClient(path=args.chroma)
-    ef = embedding_functions.DefaultEmbeddingFunction()
+    ef = embedding_functions.SentenceTransformerEmbeddingFunction(model_name="intfloat/multilingual-e5-small")
     collection = client.get_or_create_collection(
         name=args.collection, embedding_function=ef,
         metadata={"hnsw:space": "cosine"})

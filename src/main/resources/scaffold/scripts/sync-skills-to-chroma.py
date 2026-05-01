@@ -7,6 +7,15 @@ Idempotent — rebuilds the collection each time (skills are few).
 Usage:
   python3 .agents/scripts/sync-skills-to-chroma.py
 """
+import os
+os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+os.environ["HF_HUB_DISABLE_IMPLICIT_TOKEN"] = "1"
+
+import warnings
+warnings.filterwarnings("ignore", message=".*unauthenticated.*")
+warnings.filterwarnings("ignore", message=".*HF_TOKEN.*")
+
 import sys
 from pathlib import Path
 
@@ -97,7 +106,9 @@ def main():
         return
 
     client = chromadb.PersistentClient(path=chroma_path)
-    ef = embedding_functions.DefaultEmbeddingFunction()
+    import io, contextlib
+    with contextlib.redirect_stderr(io.StringIO()):
+        ef = embedding_functions.SentenceTransformerEmbeddingFunction(model_name="intfloat/multilingual-e5-small")
 
     # Rebuild — skills are few, always fresh
     try:
