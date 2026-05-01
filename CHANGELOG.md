@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### [20aefe3] — 2026-04-30
+
+**feat(agent): switch to multilingual-e5-small embedding model**
+
+> what: Replaces DefaultEmbeddingFunction with SentenceTransformerEmbeddingFunction
+> (intfloat/multilingual-e5-small) across all Chroma scripts, and refactors
+> scan-history.sh to load the model once for the full history replay
+> why: Better cross-language semantic embeddings improve code search quality,
+
+_Run with jsonl enrichment for file-level detail._
+
+---
+
 ### [95de1c3] — 2026-04-30
 
 **refactor(agent): write hunks directly to Chroma, drop JSONL layer**
