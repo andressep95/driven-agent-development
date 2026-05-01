@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### [9f8b05c] — 2026-04-30
+
+**feat(agent): add session-start and validate-commit hooks**
+
+> what: SessionStart detects project stack and injects it as context; PreToolUse blocks git commit when what:/why:/breaking: fields are missing
+> why: Eliminates manual stack context at session open and enforces RAG-critical commit fields at the git layer before they can be lost
+> breaking: false
+
+_Run with jsonl enrichment for file-level detail._
+
+---
+
 ### [c3bcb17] — 2026-04-30
 
 **feat(agent): add UserPromptSubmit hook for per-task context injection**
