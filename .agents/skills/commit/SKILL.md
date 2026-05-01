@@ -130,4 +130,4 @@ breaking: false
 
 ## Assets
 
-- **Hook:** `.git/hooks/post-commit` → invokes `extract_changes.py`, writes to `.agents/memory/memory.jsonl`.
+- **Hook:** `.git/hooks/post-commit` → invokes `extract_changes.py`, indexes directly into ChromaDB.

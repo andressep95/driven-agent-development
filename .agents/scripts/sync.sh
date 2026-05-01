@@ -234,4 +234,18 @@ while IFS= read -r skill_file; do
 done < <(find "$SKILLS_DIR" -mindepth 2 -maxdepth 2 -name SKILL.md -print | sort)
 [ $missing -eq 0 ] && echo -e "  ${GREEN}All skills have sync metadata${NC}"
 echo ""
+
+# ── sync skills to Chroma ────────────────────────────────────────────────────
+
+echo -e "${BLUE}Chroma skill index:${NC}"
+if $DRY_RUN; then
+    echo -e "  ${YELLOW}[DRY RUN] Would re-index skills in Chroma${NC}"
+elif python3 -c "import chromadb" &>/dev/null && [ -f "$SCRIPT_DIR/sync-skills-to-chroma.py" ]; then
+    python3 "$SCRIPT_DIR/sync-skills-to-chroma.py" 2>/dev/null && \
+        echo -e "  ${GREEN}✓${NC} Skills re-indexed in Chroma" || \
+        echo -e "  ${YELLOW}⚠${NC}  Chroma indexing failed"
+else
+    echo -e "  ${YELLOW}⚠${NC}  chromadb not installed — skipping. Run: pip install chromadb"
+fi
+echo ""
 echo -e "${GREEN}Done.${NC}"

@@ -58,11 +58,8 @@ python3 .agents/scripts/query-memory.py "pagination helpers" --limit 5
 Before querying, ensure memory exists:
 
 ```bash
-# Full init: scan git history + push to Chroma
+# Full init: scan git history into Chroma
 bash .agents/scripts/init.sh
-
-# Or push existing memory.jsonl to Chroma only
-python3 .agents/scripts/sync-to-chroma.py
 ```
 
 Run `scan-memory` if the Chroma collection is empty.

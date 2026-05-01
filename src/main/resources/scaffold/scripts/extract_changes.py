@@ -1,19 +1,17 @@
 #!/usr/bin/env python3
 """
-Post-commit extractor — writes one JSONL entry per modified hunk.
+Post-commit extractor — indexes each modified hunk directly into ChromaDB.
 Reads what/why/breaking from the commit body and the diff for exact location.
-Output: .agents/memory/memory.jsonl (append, idempotent by ID).
+No intermediate JSONL — git is the source of truth, Chroma is the search layer.
 """
 
-import json
 import re
 import subprocess
 from pathlib import Path
 
 
 def run(cmd: str) -> str:
-    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-    return result.stdout.strip()
+    return subprocess.run(cmd, shell=True, capture_output=True, text=True).stdout.strip()
 
 
 LANGUAGE_MAP = {
@@ -36,228 +34,157 @@ def detect_language(path: str) -> str:
 
 
 def file_kind(path: str) -> str:
-    ext  = Path(path).suffix.lower()
+    ext = Path(path).suffix.lower()
     name = Path(path).stem.lower()
-    if ext in {".sh", ".bash", ".zsh"}:
-        return "script"
+    if ext in {".sh", ".bash", ".zsh"}: return "script"
     if ext in {".py", ".go", ".ts", ".tsx", ".js", ".jsx", ".rs",
                ".java", ".kt", ".c", ".cpp", ".rb", ".cs"}:
         return "test" if "test" in name or "spec" in name else "source"
-    if ext in {".json", ".yaml", ".yml", ".toml", ".env", ".ini", ".cfg"}:
-        return "config"
-    if ext in {".md", ".txt", ".rst", ".adoc"}:
-        return "doc"
-    if ext in {".css", ".scss", ".sass", ".less"}:
-        return "style"
+    if ext in {".json", ".yaml", ".yml", ".toml", ".env", ".ini", ".cfg"}: return "config"
+    if ext in {".md", ".txt", ".rst", ".adoc"}: return "doc"
+    if ext in {".css", ".scss", ".sass", ".less"}: return "style"
     return "other"
 
 
 def parse_commit_parts(intent: str) -> tuple[str, str]:
     m = re.match(r"^(\w+)(?:\(([\w/.-]+)\))?:", intent)
-    commit_type = m.group(1) if m else ""
-    scope       = m.group(2) if m and m.group(2) else ""
-    return commit_type, scope
+    return (m.group(1) if m else "", m.group(2) if m and m.group(2) else "")
 
 
 def parse_hunks(diff: str) -> list[dict]:
-    hunks   = []
-    current = None
-
+    hunks, current = [], None
     for line in diff.splitlines():
         if line.startswith("@@"):
-            if current:
-                hunks.append(current)
+            if current: hunks.append(current)
             m = re.match(r"@@\s+-\d+(?:,\d+)?\s+\+(\d+)(?:,(\d+))?\s+@@(.*)", line)
-            if not m:
-                continue
+            if not m: continue
             start = int(m.group(1))
             count = int(m.group(2)) if m.group(2) is not None else 1
-            current = {
-                "hunk_header":  line,
-                "symbol":       m.group(3).strip(),
-                "lines_start":  start,
-                "lines_end":    start + max(count - 1, 0),
-                "lines_delta":  0,
-                "content":      [],
-                "adds":         False,
-                "dels":         False,
-            }
+            current = {"symbol": m.group(3).strip(), "lines_start": start,
+                       "lines_end": start + max(count - 1, 0), "lines_delta": 0,
+                       "adds": False, "dels": False}
         elif current is not None:
             if line.startswith("+") and not line.startswith("+++"):
-                current["content"].append(line)
-                current["adds"]        = True
-                current["lines_delta"] += 1
+                current["adds"] = True; current["lines_delta"] += 1
             elif line.startswith("-") and not line.startswith("---"):
-                current["content"].append(line)
-                current["dels"]        = True
-                current["lines_delta"] -= 1
-            elif line.startswith(" "):
-                current["content"].append(line)
-
-    if current:
-        hunks.append(current)
+                current["dels"] = True; current["lines_delta"] -= 1
+    if current: hunks.append(current)
     return hunks
 
 
 def change_type(adds: bool, dels: bool) -> str:
-    if adds and dels:
-        return "modification"
+    if adds and dels: return "modification"
     return "addition" if adds else "deletion"
 
 
-def make_tags(commit_type: str, scope: str, kind: str, ctype: str) -> list[str]:
-    tags = [t for t in [commit_type, ctype, kind, scope] if t]
-    return list(dict.fromkeys(tags))
-
-
 def semantic_desc(what: str, why: str, intent: str, symbol: str, file: str) -> str:
-    if what and why:
-        return f"{what} — {why}"
-    if what:
-        return f"{what} ({symbol or file})"
-    if why:
-        return f"{intent} — {why}"
+    if what and why: return f"{what} — {why}"
+    if what: return f"{what} ({symbol or file})"
+    if why: return f"{intent} — {why}"
     return f"{intent} ({symbol or file})"
 
 
 def main() -> None:
-    import argparse
+    import argparse, sys
     p = argparse.ArgumentParser()
-    p.add_argument("--ref", default="HEAD",
-                   help="Commit ref to extract (default: HEAD)")
+    p.add_argument("--ref", default="HEAD")
+    p.add_argument("--chroma", default=".agents/memory/chroma")
+    p.add_argument("--collection", default="changes")
     args = p.parse_args()
     ref = args.ref
 
+    try:
+        import chromadb
+        from chromadb.utils import embedding_functions
+    except ImportError:
+        print("ERROR: pip install chromadb", file=sys.stderr)
+        sys.exit(1)
+
+    # Git metadata
     commit  = run(f"git log -1 --format=%h {ref}")
     author  = run(f"git log -1 --format=%an {ref}")
     email   = run(f"git log -1 --format=%ae {ref}")
     ts      = run(f"git log -1 --format=%cI {ref}")[:10]
     intent  = run(f"git log -1 --format=%s {ref}")
     body    = run(f"git log -1 --format=%b {ref}")
-    if ref == "HEAD":
-        branch = run("git rev-parse --abbrev-ref HEAD")
-    else:
-        # Historical replay: find branches containing this commit, prefer main/master
-        raw = run(f"git branch --contains {ref} --format='%(refname:short)' 2>/dev/null")
-        candidates = [b.strip().strip("'") for b in raw.splitlines() if b.strip()]
-        main = [b for b in candidates if b in ("main", "master")]
-        branch = main[0] if main else (candidates[0] if candidates else "unknown")
+    branch  = run("git rev-parse --abbrev-ref HEAD") if ref == "HEAD" else \
+              (run(f"git branch --contains {ref} --format='%(refname:short)' 2>/dev/null").splitlines() or ["unknown"])[0].strip("'")
     project = Path(run("git rev-parse --show-toplevel")).name
 
     what, why, breaking = "", "", False
     for line in body.splitlines():
-        if line.startswith("what:"):
-            what = line[5:].strip()
-        elif line.startswith("why:"):
-            why = line[4:].strip()
-        elif line.startswith("breaking:"):
-            breaking = line[9:].strip().lower() == "true"
+        if line.startswith("what:"): what = line[5:].strip()
+        elif line.startswith("why:"): why = line[4:].strip()
+        elif line.startswith("breaking:"): breaking = line[9:].strip().lower() == "true"
 
     commit_type, scope = parse_commit_parts(intent)
 
-    # Detect parent (empty tree for initial commit)
     parent = run(f"git rev-parse --verify {ref}~1 2>/dev/null")
-    if not parent:
-        parent = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+    if not parent: parent = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
     files_raw = run(f"git diff-tree --no-commit-id -r --name-only {ref}")
     all_files = [f for f in files_raw.splitlines() if f]
-    related   = {f: [x for x in all_files if x != f] for f in all_files}
+    if not all_files: return
 
-    repo_root  = Path(run("git rev-parse --show-toplevel"))
-    memory_dir = repo_root / ".agents" / "memory"
-    memory_dir.mkdir(parents=True, exist_ok=True)
-    jsonl_path = memory_dir / "memory.jsonl"
+    # Chroma
+    client = chromadb.PersistentClient(path=args.chroma)
+    ef = embedding_functions.DefaultEmbeddingFunction()
+    collection = client.get_or_create_collection(
+        name=args.collection, embedding_function=ef,
+        metadata={"hnsw:space": "cosine"})
 
-    # Dedup: skip records already in memory.jsonl for this commit
-    existing_keys: set[tuple[str, str, str]] = set()
-    if jsonl_path.exists():
-        with open(jsonl_path, encoding="utf-8") as f:
-            for raw in f:
-                raw = raw.strip()
-                if not raw:
-                    continue
-                try:
-                    e = json.loads(raw)
-                    if e.get("type") == "change" and e.get("commit") == commit:
-                        existing_keys.add((e["commit"], e["file"], e.get("hunk_header", "")))
-                except json.JSONDecodeError:
-                    pass
+    # Check existing to skip duplicates
+    existing = set(collection.get(where={"commit": commit}, include=[])["ids"]) \
+               if collection.count() > 0 else set()
 
-    records = []
+    ids, documents, metadatas = [], [], []
 
     for file in all_files:
         kind = file_kind(file)
         lang = detect_language(file)
+        diff = run(f'git diff {parent} {ref} -- "{file}" 2>/dev/null') or \
+               run(f'git show {ref} -- "{file}"')
 
-        diff = run(f'git diff {parent} {ref} -- "{file}" 2>/dev/null')
-        if not diff:
-            diff = run(f'git show {ref} -- "{file}"')
-
-        lines     = diff.splitlines()
+        lines = diff.splitlines()
         start_idx = next((i for i, l in enumerate(lines) if l.startswith("@@")), None)
         diff_body = "\n".join(lines[start_idx:]) if start_idx is not None else ""
 
         hunks = parse_hunks(diff_body)
-
         if not hunks:
-            hunks = [{
-                "hunk_header":  "",
-                "symbol":       "",
-                "lines_start":  1,
-                "lines_end":    1,
-                "lines_delta":  sum(1 for l in lines if l.startswith("+")),
-                "content":      lines[:80],
-                "adds":         any(l.startswith("+") for l in lines),
-                "dels":         any(l.startswith("-") for l in lines),
-            }]
+            hunks = [{"symbol": "", "lines_start": 1, "lines_end": 1, "lines_delta": 0,
+                       "adds": any(l.startswith("+") for l in lines),
+                       "dels": any(l.startswith("-") for l in lines)}]
 
         for h in hunks:
-            key = (commit, file, h["hunk_header"])
-            if key in existing_keys:
-                continue
+            rid = f"{commit}:{file}:{h['lines_start']}"
+            if rid in existing: continue
 
             ctype = change_type(h["adds"], h["dels"])
-            tags  = make_tags(commit_type, scope, kind, ctype)
+            tags = [t for t in [commit_type, ctype, kind, scope] if t]
             sdesc = semantic_desc(what, why, intent, h["symbol"], file)
 
-            records.append({
-                "type":                 "change",
-                "commit_type":          commit_type,
-                "scope":                scope,
-                "change_type":          ctype,
-                "file":                 file,
-                "file_kind":            kind,
-                "language":             lang,
-                "symbol":               h["symbol"],
-                "lines_start":          h["lines_start"],
-                "lines_end":            h["lines_end"],
-                "lines_delta":          h["lines_delta"],
-                "what":                 what,
-                "why":                  why,
-                "semantic_description": sdesc,
-                "intent":               intent,
-                "tags":                 tags,
-                "breaking":             breaking,
-                "related_files":        related.get(file, []),
-                "commit":               commit,
-                "branch":               branch,
-                "project":              project,
-                "author":               author,
-                "email":                email,
-                "ts":                   ts,
-                "hunk_header":          h["hunk_header"],
-                "hunk_content":         "\n".join(h["content"][:100]),
+            ids.append(rid)
+            documents.append(sdesc)
+            metadatas.append({
+                "file": file, "file_kind": kind, "language": lang,
+                "symbol": h["symbol"], "what": what, "why": why,
+                "intent": intent, "commit_type": commit_type, "scope": scope,
+                "change_type": ctype, "commit": commit, "branch": branch,
+                "project": project, "ts": ts, "author": author,
+                "tags": ",".join(tags), "lines_start": h["lines_start"],
+                "lines_end": h["lines_end"], "breaking": str(breaking).lower(),
             })
 
-    if not records:
-        return
+    if not ids: return
 
-    with open(jsonl_path, "a", encoding="utf-8") as f:
-        for r in records:
-            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+    BATCH = 100
+    for i in range(0, len(ids), BATCH):
+        collection.upsert(
+            ids=ids[i:i+BATCH],
+            documents=documents[i:i+BATCH],
+            metadatas=metadatas[i:i+BATCH])
 
-    print(f"[memory] {len(records)} hunk(s) recorded → {commit} ({branch})")
+    print(f"[memory] {len(ids)} hunk(s) → Chroma ({commit} {branch})")
 
 
 if __name__ == "__main__":

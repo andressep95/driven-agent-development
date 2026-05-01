@@ -41,30 +41,15 @@ The script detects which context files exist and syncs only those:
 | `CLAUDE.md` | Claude Code |
 | `.kiro/steering/project-rules.md` | Kiro |
 
-No configuration needed — detection is purely file-based. If neither exists,
-the script reports that and exits cleanly.
+### 2. Read all skills and rebuild tables
 
-### 2. Read all skills
+Replaces `## Available Skills` and `## Auto-Invoke Skills` sections with
+freshly generated tables from SKILL.md frontmatter.
 
-Read every `skills/*/SKILL.md` and extract:
-- `name` — the skill identifier
-- `description` — one-line description for the Available Skills table
-- `metadata.auto_invoke` — list of trigger phrases for the Auto-Invoke table
+### 3. Re-index skills in Chroma
 
-### 3. Rebuild both tables in each detected file
-
-Replaces the `## Available Skills` and `## Auto-Invoke Skills` sections with
-freshly generated tables.
-
-Rules:
-- One row per `auto_invoke` phrase per skill
-- Sort rows alphabetically by Action column
-- Replace the full existing table — do not append
-
-### 4. Report missing metadata
-
-After syncing, lists any skills that are missing `auto_invoke` in their
-frontmatter so they can be fixed.
+Runs `sync-skills-to-chroma.py` to rebuild the `skills` collection so the
+`UserPromptSubmit` hook can match skills semantically (cross-language).
 
 ---
 
