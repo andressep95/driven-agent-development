@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### [7903560] — 2026-04-30
+
+**refactor(agent): replace keyword scoring with Chroma semantic skill search**
+
+> what: user-prompt-submit.sh queries the 'skills' Chroma collection; sync-skills-to-chroma.py indexes all SKILL.md files; init.sh adds a [3/3] skills-indexing step
+> why: Keyword overlap produced false matches on complex prompts — semantic embeddings route to the correct skill regardless of vocabulary mismatch
+> breaking: false
+
+_Run with jsonl enrichment for file-level detail._
+
+---
+
 ### [9f8b05c] — 2026-04-30
 
 **feat(agent): add session-start and validate-commit hooks**
