@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### [95de1c3] — 2026-04-30
+
+**refactor(agent): write hunks directly to Chroma, drop JSONL layer**
+
+> what: extract_changes.py, scan-history.sh, and post-commit now index
+> hunks straight into ChromaDB in a single pass; init.sh exits on
+> missing deps instead of soft-falling back to JSONL-only mode;
+> sync.sh gains a Chroma skill re-index step
+
+_Run with jsonl enrichment for file-level detail._
+
+---
+
 ### [7903560] — 2026-04-30
 
 **refactor(agent): replace keyword scoring with Chroma semantic skill search**
