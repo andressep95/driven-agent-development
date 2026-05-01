@@ -11,6 +11,9 @@ metadata:
     - "After updating api/openapi.yaml with a completed endpoint"
     - "Documenting a completed feature"
     - "Feature is ready and needs usage documentation"
+    - "Documentar funcionalidad terminada"
+    - "Generar documentación de una feature completa"
+    - "La feature está lista, necesita documentación"
 allowed-tools: Read, Write, Glob, Grep
 ---
 

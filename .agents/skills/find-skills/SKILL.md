@@ -8,6 +8,8 @@ metadata:
     - "Find a skill for a task"
     - "Search for available skills"
     - "Install a new skill"
+    - "Buscar un skill para una tarea"
+    - "Encontrar o instalar skills disponibles"
 ---
 
 # Find Skills

@@ -11,6 +11,8 @@ metadata:
   auto_invoke:
     - "After creating or modifying a skill"
     - "Auto-invoke table is out of sync"
+    - "Después de crear o modificar un skill"
+    - "Sincronizar tabla de skills"
 allowed-tools: Read, Glob, Edit, Bash
 ---
 

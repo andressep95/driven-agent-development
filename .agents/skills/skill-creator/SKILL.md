@@ -11,6 +11,9 @@ metadata:
     - "Creating a new skill"
     - "Adding agent instructions"
     - "Documenting a pattern for AI reuse"
+    - "Crear un nuevo skill"
+    - "Agregar instrucciones al agente"
+    - "Documentar un patrón para reutilizar"
 allowed-tools: Read, Edit, Write, Glob, Grep, Bash
 ---
 

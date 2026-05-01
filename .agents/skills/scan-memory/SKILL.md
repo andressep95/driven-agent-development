@@ -14,6 +14,9 @@ metadata:
     - "First-time project setup"
     - "After a major refactor affecting multiple files"
     - "Bootstrap agent memory"
+    - "Inicializar memoria del agente"
+    - "Escanear historial de git"
+    - "La memoria está vacía o falta"
 allowed-tools: Read, Bash, Write
 ---
 

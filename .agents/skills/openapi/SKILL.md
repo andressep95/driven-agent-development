@@ -13,6 +13,9 @@ metadata:
     - "Changing API responses"
     - "Changing request or response schema"
     - "Deleting an endpoint"
+    - "Agregar o modificar un endpoint"
+    - "Sincronizar especificación openapi"
+    - "Cambiar esquema de request o response"
 allowed-tools: Read, Edit, Write, Glob, Grep
 ---
 

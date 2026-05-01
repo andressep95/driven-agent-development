@@ -11,6 +11,9 @@ metadata:
     - "Creating a git commit"
     - "Stage and commit changes"
     - "Write a commit message"
+    - "Hacer commit de los cambios"
+    - "Commitear, guardar cambios en git"
+    - "Escribir mensaje de commit"
 allowed-tools: Bash
 ---
 

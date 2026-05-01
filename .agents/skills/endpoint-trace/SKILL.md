@@ -15,6 +15,9 @@ metadata:
     - "trace endpoint dependencies"
     - "map endpoint call chain"
     - "create code-level endpoint doc"
+    - "documentar endpoint, trazar dependencias"
+    - "crear endpoint REST, API HTTP"
+    - "mapear cadena de llamadas de un endpoint"
 allowed-tools: Read, Edit, Write, Glob, Grep, Bash
 ---
 

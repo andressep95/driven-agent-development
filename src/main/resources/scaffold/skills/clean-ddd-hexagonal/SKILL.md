@@ -12,6 +12,11 @@ metadata:
     - "Applying hexagonal architecture"
     - "Defining bounded contexts"
     - "Implementing use cases or application services"
+    - "Diseñar un microservicio o API"
+    - "Modelar entidades de dominio o agregados"
+    - "Implementar patrón repositorio"
+    - "Crear modelo de dominio para módulo de pagos, usuarios, etc"
+    - "Arquitectura hexagonal, capas, puertos y adaptadores"
 allowed-tools: Read, Edit, Write, Bash
 ---
 
