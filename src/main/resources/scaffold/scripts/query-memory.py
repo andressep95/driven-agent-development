@@ -1,51 +1,8 @@
 #!/usr/bin/env python3
 """
-Searches memory.jsonl via ChromaDB (semantic) or JSONL keyword fallback.
-Handles both record types: symbol (Java code) and change (git hunks).
+Searches agent memory via ChromaDB semantic search.
 """
-import json, sys, argparse, os
-
-
-def search_jsonl(jsonl_path, query, kind_filter, type_filter, limit):
-    if not os.path.exists(jsonl_path):
-        print(f"ERROR: {jsonl_path} not found. Run scan-memory or make a commit first.")
-        sys.exit(1)
-
-    terms = [t.lower() for t in query.split()]
-    results = []
-
-    with open(jsonl_path) as f:
-        for raw in f:
-            raw = raw.strip()
-            if not raw:
-                continue
-            try:
-                e = json.loads(raw)
-            except json.JSONDecodeError:
-                continue
-
-            if type_filter and e.get('type') != type_filter:
-                continue
-            if kind_filter:
-                if e.get('kind') != kind_filter and e.get('file_kind') != kind_filter:
-                    continue
-
-            haystack = ' '.join([
-                e.get('symbol', ''),
-                e.get('file', ''),
-                e.get('intent', ''),
-                e.get('hunk_content', ''),
-                e.get('change_type', ''),
-                e.get('file_kind', e.get('kind', '')),
-                ' '.join(e.get('tags', [])),
-            ]).lower()
-
-            score = sum(1 for t in terms if t in haystack)
-            if score > 0:
-                results.append((score, e))
-
-    results.sort(key=lambda x: x[0], reverse=True)
-    return results[:limit]
+import sys, argparse
 
 
 def print_symbol(m, score_label):
@@ -90,53 +47,52 @@ def main():
     p.add_argument('query', nargs='?', default='')
     p.add_argument('--chroma',     default='.agents/memory/chroma')
     p.add_argument('--collection', default='changes')
-    p.add_argument('--jsonl',      default='.agents/memory/memory.jsonl')
     p.add_argument('--kind',       default='', help='Filter by kind/file_kind')
     p.add_argument('--type',       default='', help='Filter by type: symbol | change')
     p.add_argument('--limit',      type=int, default=10)
-    p.add_argument('--no-chroma',  action='store_true')
     args = p.parse_args()
 
     if not args.query:
         print("Usage: query-memory.py <query> [--type change|symbol] [--kind skill] [--limit 5]")
         sys.exit(1)
 
-    if not args.no_chroma:
-        try:
-            import chromadb
-            from chromadb.utils import embedding_functions
-            client = chromadb.PersistentClient(path=args.chroma)
-            ef = embedding_functions.DefaultEmbeddingFunction()
-            collection = client.get_collection(args.collection, embedding_function=ef)
+    try:
+        import chromadb
+        from chromadb.utils import embedding_functions
+    except ImportError:
+        print("ERROR: chromadb not installed. Run: pip install chromadb", file=sys.stderr)
+        sys.exit(1)
 
-            where = {}
-            if args.kind:
-                where['$or'] = [{'kind': args.kind}, {'file_kind': args.kind}]
-            if args.type:
-                where['type'] = args.type
+    try:
+        client = chromadb.PersistentClient(path=args.chroma)
+        ef = embedding_functions.DefaultEmbeddingFunction()
+        collection = client.get_collection(args.collection, embedding_function=ef)
 
-            results = collection.query(
-                query_texts=[args.query],
-                n_results=args.limit,
-                where=where or None,
-            )
+        where = {}
+        if args.kind:
+            where['$or'] = [{'kind': args.kind}, {'file_kind': args.kind}]
+        if args.type:
+            where['type'] = args.type
 
-            for i in range(len(results['ids'][0])):
-                m = results['metadatas'][0][i]
-                dist  = results['distances'][0][i] if results.get('distances') else 0
-                score = max(0, 1 - dist)
-                print_result(m, f"{score:.2%}")
+        results = collection.query(
+            query_texts=[args.query],
+            n_results=args.limit,
+            where=where or None,
+        )
+
+        if not results['ids'][0]:
+            print("No results found.")
             return
 
-        except Exception as e:
-            print(f"[query-memory] Chroma unavailable ({e}) — falling back to JSONL", file=sys.stderr)
+        for i in range(len(results['ids'][0])):
+            m = results['metadatas'][0][i]
+            dist  = results['distances'][0][i] if results.get('distances') else 0
+            score = max(0, 1 - dist)
+            print_result(m, f"{score:.2%}")
 
-    hits = search_jsonl(args.jsonl, args.query, args.kind, args.type, args.limit)
-    if not hits:
-        print("No results found.")
-        return
-    for score, e in hits:
-        print_result(e, f"{score} keyword match(es)")
+    except Exception as e:
+        print(f"[query-memory] Chroma error: {e}", file=sys.stderr)
+        print("No results found. Run 'bash .agents/scripts/init.sh' to initialize memory.")
 
 
 if __name__ == '__main__':

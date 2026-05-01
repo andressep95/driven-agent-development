@@ -1,11 +1,10 @@
 ---
 name: query-memory
 description: >
-  Searches agent memory by semantic similarity (ChromaDB) with automatic
-  fallback to keyword search over memory.jsonl when Chroma is unavailable.
+  Searches agent memory by semantic similarity via ChromaDB.
   Trigger: Search codebase symbols by intent or behavior rather than exact name.
 metadata:
-  version: "1.0"
+  version: "2.0"
   scope: [root]
   auto_invoke:
     - "Search codebase by intent or behavior"
@@ -20,16 +19,17 @@ allowed-tools: Bash
 Prefer `query-memory` for semantic searches when:
 - Searching by **behavior or intent** ("find the class that handles retries")
 - The symbol name is unknown but its purpose is known
-- Keyword search returns no results or too many irrelevant ones
 
-Use `--no-chroma` for fast exact keyword or file path matching directly from JSONL.
+> **Note:** This skill is auto-invoked by the `UserPromptSubmit` hook before
+> every task. You rarely need to call it manually — the context is already
+> injected. Use it explicitly only for follow-up or narrower queries.
 
 ---
 
 ## Commands
 
 ```bash
-# Semantic query — uses Chroma if available, falls back to JSONL automatically
+# Semantic query via Chroma
 python3 .agents/scripts/query-memory.py "handles cross-account role assumption"
 
 # Filter by kind: controller, service, repository, config, dto, domain
@@ -37,23 +37,7 @@ python3 .agents/scripts/query-memory.py "account onboarding" --kind service
 
 # Limit results
 python3 .agents/scripts/query-memory.py "pagination helpers" --limit 5
-
-# Force JSONL-only (skip Chroma entirely)
-python3 .agents/scripts/query-memory.py "credential caching" --no-chroma
 ```
-
----
-
-## Fallback Behavior
-
-The script auto-detects Chroma availability at query time:
-
-| Chroma status | Behavior |
-|---------------|----------|
-| Running | Semantic vector search (ranked by embedding similarity) |
-| Down / not installed | Keyword search over `.agents/memory.jsonl` |
-
-No configuration needed — the fallback is transparent.
 
 ---
 
@@ -64,7 +48,7 @@ No configuration needed — the fallback is transparent.
    File: src/main/java/...
    Lines: 14-120
    Intent: One-sentence description of what it does
-   Score: 87.42%       ← similarity score (Chroma) or keyword matches (JSONL)
+   Score: 87.42%       ← cosine similarity score
 ```
 
 ---
@@ -74,11 +58,11 @@ No configuration needed — the fallback is transparent.
 Before querying, ensure memory exists:
 
 ```bash
-# Full init: scan Java files + push to Chroma
+# Full init: scan git history + push to Chroma
 bash .agents/scripts/init.sh
 
 # Or push existing memory.jsonl to Chroma only
 python3 .agents/scripts/sync-to-chroma.py
 ```
 
-Run `scan-memory` if `memory.jsonl` is empty or missing.
+Run `scan-memory` if the Chroma collection is empty.

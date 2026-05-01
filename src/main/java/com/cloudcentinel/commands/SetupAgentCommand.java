@@ -87,6 +87,7 @@ public class SetupAgentCommand implements Callable<Integer> {
             // ── Kiro ──────────────────────────────────────────────────────────
             if (tools.contains("kiro")) {
                 extractFile(".kiro/hooks/post-commit-clear.yaml", ".kiro/hooks/post-commit-clear.yaml");
+                extractFile(".kiro/hooks/user-prompt-submit.yaml", ".kiro/hooks/user-prompt-submit.yaml");
                 symlink(".kiro/skills",                    "../.agents/skills");
                 symlink(".kiro/steering/project-rules.md", "../../.agents/rules.md");
                 globalHook("hooks/post-commit-clear.sh", ".kiro/hooks/post-commit-clear.sh");
