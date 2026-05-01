@@ -51,10 +51,10 @@ fi
 # ── Memory bootstrap ──────────────────────────────────────────────────────
 echo "=== Memory Bootstrap ==="
 
-echo "[1/2] Replaying git history..."
+echo "[1/3] Replaying git history..."
 bash "$SCRIPT_DIR/scan-history.sh"
 
-echo "[2/2] Syncing to Chroma..."
+echo "[2/3] Syncing changes to Chroma..."
 if [ "${SKIP_CHROMA:-}" = "true" ]; then
     echo "  [skip] Chroma sync skipped — missing dependencies."
     echo "  memory.jsonl is populated. Install deps and re-run to enable semantic search."
@@ -63,6 +63,13 @@ elif python3 -c "import chromadb" &>/dev/null; then
 else
     echo "  [skip] chromadb not available — memory.jsonl is populated."
     echo "  Run: pip install -r $REQUIREMENTS"
+fi
+
+echo "[3/3] Indexing skills to Chroma..."
+if [ "${SKIP_CHROMA:-}" != "true" ] && python3 -c "import chromadb" &>/dev/null; then
+    python3 "$SCRIPT_DIR/sync-skills-to-chroma.py"
+else
+    echo "  [skip] Skills indexing skipped — Chroma not available."
 fi
 
 echo "=== Done ==="
