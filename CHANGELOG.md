@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### [ca89b9a] — 2026-05-02
+
+**feat(agent): add token consumption tracking and query relevance filtering**
+
+> what: Adds Claude Code token tracker (Stop hook), query relevance threshold with audit logging, and token-report.py for system health analysis
+> why: Needed visibility into whether the skill-driven protocol reduces context waste and whether Chroma injections are relevant
+> breaking: false
+
+#### Added
+
+- `.agents/scripts/token-report.py`
+- `.agents/scripts/token-tracker.py`
+- `src/main/resources/scaffold/scripts/token-report.py`
+- `src/main/resources/scaffold/scripts/token-tracker.py`
+
+#### Changed
+
+- `.agents/scripts/query-memory.py`
+- `.claude/settings.json`
+- `.gitignore`
+- `src/main/resources/scaffold/.claude/settings.json`
+- `src/main/resources/scaffold/scripts/query-memory.py`
+
+---
+
 ### [b1fa501] — 2026-04-30
 
 **refactor(agent): remove JSONL support from changelog and drop sync-to-chroma scaffold**
