@@ -1,5 +1,4 @@
 {
-  "enabledMcpjsonServers": ["context7"],
   "hooks": {
     "SessionStart": [
       {

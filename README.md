@@ -56,6 +56,7 @@ Hooks intercept agent lifecycle events and inject context or block actions autom
 | `user-prompt-submit.sh` | UserPromptSubmit | Finds relevant skill via Chroma semantic search + injects prior context from memory |
 | `validate-commit.sh` | PreToolUse | Blocks `git commit` if body is missing `what:`, `why:`, `breaking:` fields |
 | `post-commit-clear.sh` | PostToolUse | Reminds agent to request `/clear` after each commit |
+| `token-tracker.py` | Stop | Reads token usage from the session transcript and appends a record to `.agents/memory/token-usage.jsonl` |
 
 ### How UserPromptSubmit works
 
@@ -67,6 +68,7 @@ User writes: "crear endpoint de autenticación JWT"
   │
   ├─ Queries Chroma 'changes' collection
   │    → 5 most relevant prior changes in the project
+  │    → drops results below relevance threshold (default: 0.72)
   │
   └─ Injects as additionalContext:
        "## Relevant Skill: openapi
@@ -81,6 +83,33 @@ The agent receives precise context before responding — no need to read the ent
 ### Adding new hooks
 
 See [docs/extending-hooks.md](docs/extending-hooks.md) for a complete guide with recipes.
+
+---
+
+## Token Tracking
+
+The `Stop` hook runs `token-tracker.py` at the end of every session and logs token consumption to `.agents/memory/token-usage.jsonl`.
+
+Each record includes:
+
+| Field | Description |
+|-------|-------------|
+| `input` / `output` | Raw token counts for the session |
+| `cache_creation` / `cache_read` | Prompt cache breakdown |
+| `quality` | `alta` (≥80% cache hit), `media` (≥40%), `baja` (<40%) |
+| `session_id` | Claude session identifier |
+
+### Analyzing system health
+
+```bash
+python3 .agents/scripts/token-report.py
+```
+
+Prints a report that crosses `token-usage.jsonl` with `query-log.jsonl` to show:
+
+- Token usage per turn and per agent (with cache hit rate)
+- Chroma injection quality: how many results were injected vs dropped per query
+- Warning if any injection scored below the relevance threshold
 
 ---
 
@@ -153,6 +182,21 @@ task → [hook injects memory + skill hint] → load skill → execute → commi
 
 Skills live in `.agents/skills/<name>/SKILL.md`. The `UserPromptSubmit` hook finds the right skill automatically via semantic search. The agent loads the SKILL.md and follows its protocol.
 
+### Available skills
+
+| Skill | Purpose |
+|-------|---------|
+| `clean-ddd-hexagonal` | APIs, domain models, aggregates, use cases |
+| `commit` | Conventional Commits enforcement |
+| `endpoint-trace` | Full call-chain trace for an HTTP endpoint |
+| `feature-docs` | Usage-flow docs for completed features |
+| `jpa-query-optimizer` | Detect and fix N+1, fetch strategy, projection, pagination, and caching issues in Spring Boot JPA/Hibernate |
+| `openapi` | Keep `api/openapi.yaml` in sync with Spring controllers |
+| `query-memory` | Semantic search over project history |
+| `scan-memory` | Replay full git history into Chroma |
+| `skill-creator` | Author new skills consistently |
+| `skill-sync` | Sync skill tables in `rules.md` and re-index in Chroma |
+
 ### Syncing skills
 
 ```bash
@@ -177,7 +221,7 @@ repo/
 │       └── <skill-name>/SKILL.md
 │
 ├── .claude/                        ← Claude Code config
-│   ├── settings.json               ← hooks: SessionStart, UserPromptSubmit, PreToolUse, PostToolUse
+│   ├── settings.json               ← hooks: SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, Stop
 │   └── skills/ → ../.agents/skills/
 │
 ├── .kiro/                          ← Kiro config
@@ -186,6 +230,7 @@ repo/
 │   └── skills/ → ../.agents/skills/
 │
 ├── .git/hooks/post-commit          ← indexes each commit into Chroma
+├── .mcp.json                       ← MCP server configuration (Claude Code)
 ├── AGENTS.md → .agents/rules.md    ← OpenCode entry point
 └── CLAUDE.md → .agents/rules.md    ← Claude Code entry point
 ```
