@@ -6,6 +6,43 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### [6837c3f] — 2026-05-02
+
+**feat(skills): add jpa-query-optimizer skill and refactor skill-creator**
+
+> what: Adds a full JPA/Hibernate query optimization skill with 6 reference
+> docs covering N+1, fetch strategies, projections, entity graphs,
+> pagination, and caching; refactors skill-creator to follow the same
+> English-only, table-and-decision-tree convention
+
+#### Added
+
+- `.agents/skills/jpa-query-optimizer/SKILL.md`
+- `.agents/skills/jpa-query-optimizer/references/CACHING.md`
+- `.agents/skills/jpa-query-optimizer/references/CHEATSHEET.md`
+- `.agents/skills/jpa-query-optimizer/references/ENTITY-GRAPHS.md`
+- `.agents/skills/jpa-query-optimizer/references/FETCH-STRATEGIES.md`
+- `.agents/skills/jpa-query-optimizer/references/N+1-PROBLEM.md`
+- `.agents/skills/jpa-query-optimizer/references/PAGINATION.md`
+- `.agents/skills/jpa-query-optimizer/references/PROJECTIONS.md`
+- `src/main/resources/scaffold/skills/jpa-query-optimizer/SKILL.md`
+- `src/main/resources/scaffold/skills/jpa-query-optimizer/references/CACHING.md`
+- `src/main/resources/scaffold/skills/jpa-query-optimizer/references/CHEATSHEET.md`
+- `src/main/resources/scaffold/skills/jpa-query-optimizer/references/ENTITY-GRAPHS.md`
+- `src/main/resources/scaffold/skills/jpa-query-optimizer/references/FETCH-STRATEGIES.md`
+- `src/main/resources/scaffold/skills/jpa-query-optimizer/references/N+1-PROBLEM.md`
+- `src/main/resources/scaffold/skills/jpa-query-optimizer/references/PAGINATION.md`
+- `src/main/resources/scaffold/skills/jpa-query-optimizer/references/PROJECTIONS.md`
+
+#### Changed
+
+- `.agents/skills/skill-creator/SKILL.md`
+- `.kiro/steering/project-rules.md`
+- `CLAUDE.md`
+- `src/main/resources/scaffold/skills/skill-creator/SKILL.md`
+
+---
+
 ### [ca89b9a] — 2026-05-02
 
 **feat(agent): add token consumption tracking and query relevance filtering**
