@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### [61852dd] — 2026-05-02
+
+**fix(memory): use local timezone for JSONL timestamps**
+
+> what: Replaces UTC timestamps with local-timezone-aware ones using
+> datetime.now().astimezone().isoformat() in token-tracker.py
+> and query-memory.py
+> why:  UTC offsets made timestamps unreadable when inspecting logs
+
+#### Changed
+
+- `.agents/scripts/query-memory.py`
+- `.agents/scripts/token-tracker.py`
+- `src/main/resources/scaffold/scripts/query-memory.py`
+- `src/main/resources/scaffold/scripts/token-tracker.py`
+
+---
+
 ### [6837c3f] — 2026-05-02
 
 **feat(skills): add jpa-query-optimizer skill and refactor skill-creator**
