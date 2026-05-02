@@ -20,7 +20,7 @@ THRESHOLD_DEFAULT = 0.72
 def _log_query(prompt: str, all_hits: list, injected_hits: list, chroma_path: str) -> None:
     log_path = Path(chroma_path).parent / "query-log.jsonl"
     entry = {
-        "ts":             datetime.utcnow().isoformat(),
+        "ts":             datetime.now().astimezone().isoformat(),
         "prompt":         prompt[:120],
         "total_hits":     len(all_hits),
         "injected":       len(injected_hits),

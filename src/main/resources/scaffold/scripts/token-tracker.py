@@ -2,7 +2,7 @@
 # Stop hook (Claude Code only) — reads token usage from transcript, appends to token-usage.jsonl.
 import json, sys
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime
 
 LOG_PATH = Path(".agents/memory/token-usage.jsonl")
 
@@ -44,7 +44,7 @@ def main():
 
     LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
     record = {
-        "ts": datetime.now(timezone.utc).isoformat(),
+        "ts": datetime.now().astimezone().isoformat(),
         "agent": "claude",
         "session_id": payload.get("session_id", "unknown"),
         "input": inp,
