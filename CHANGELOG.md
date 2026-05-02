@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### [4d00152] — 2026-05-02
+
+**perf(agent): consolidate Chroma queries into single Python process**
+
+> what: Replaces two separate Python invocations (skill + memory) with one
+> unified query-all.py script that loads the embedding model once
+> why:  Eliminates duplicate model loading on every prompt submit, cutting
+> hook latency roughly in half
+
+#### Added
+
+- `.agents/scripts/query-all.py`
+- `src/main/resources/scaffold/scripts/query-all.py`
+
+#### Changed
+
+- `.agents/scripts/user-prompt-submit.sh`
+- `src/main/resources/scaffold/scripts/user-prompt-submit.sh`
+
+---
+
 ### [61852dd] — 2026-05-02
 
 **fix(memory): use local timezone for JSONL timestamps**
