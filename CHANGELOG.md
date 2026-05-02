@@ -6,6 +6,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### [9e9340f] — 2026-05-02
+
+**feat(skills): add Vue 3 and Vue PrimeVue skills**
+
+> what: Adds SKILL.md definitions for Vue 3 core patterns and Vue 3 with
+> PrimeVue UI components
+> why:  Enables skill-driven agent support for Vue frontend development tasks
+> breaking: false
+
+#### Added
+
+- `.agents/skills/vue-primevue/SKILL.md`
+- `.agents/skills/vue-primevue/references/CHEATSHEET.md`
+- `.agents/skills/vue-primevue/references/COMPONENTS.md`
+- `.agents/skills/vue-primevue/references/THEMING.md`
+- `.agents/skills/vue/SKILL.md`
+- `.agents/skills/vue/references/CHEATSHEET.md`
+- `.agents/skills/vue/references/PINIA.md`
+- `.agents/skills/vue/references/REACTIVITY.md`
+- `.agents/skills/vue/references/ROUTER.md`
+- `src/main/resources/scaffold/skills/vue-primevue/SKILL.md`
+- `src/main/resources/scaffold/skills/vue-primevue/references/CHEATSHEET.md`
+- `src/main/resources/scaffold/skills/vue-primevue/references/COMPONENTS.md`
+- `src/main/resources/scaffold/skills/vue-primevue/references/THEMING.md`
+- `src/main/resources/scaffold/skills/vue/SKILL.md`
+- `src/main/resources/scaffold/skills/vue/references/CHEATSHEET.md`
+- `src/main/resources/scaffold/skills/vue/references/PINIA.md`
+- `src/main/resources/scaffold/skills/vue/references/REACTIVITY.md`
+- `src/main/resources/scaffold/skills/vue/references/ROUTER.md`
+
+---
+
 ### [4d00152] — 2026-05-02
 
 **perf(agent): consolidate Chroma queries into single Python process**
