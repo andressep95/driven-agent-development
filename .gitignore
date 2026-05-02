@@ -16,5 +16,4 @@ target/
 # Secrets
 *.key
 *.pem
-.agents/memory/chroma/
-.agents/memory/memory.jsonl
+.agents/memory/

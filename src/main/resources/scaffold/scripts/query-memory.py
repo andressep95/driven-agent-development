@@ -10,7 +10,29 @@ os.environ["HF_HUB_DISABLE_IMPLICIT_TOKEN"] = "1"
 import warnings
 warnings.filterwarnings("ignore", message=".*unauthenticated.*")
 
-import sys, argparse
+import sys, argparse, json
+from datetime import datetime
+from pathlib import Path
+
+THRESHOLD_DEFAULT = 0.72
+
+
+def _log_query(prompt: str, all_hits: list, injected_hits: list, chroma_path: str) -> None:
+    log_path = Path(chroma_path).parent / "query-log.jsonl"
+    entry = {
+        "ts":             datetime.utcnow().isoformat(),
+        "prompt":         prompt[:120],
+        "total_hits":     len(all_hits),
+        "injected":       len(injected_hits),
+        "dropped":        len(all_hits) - len(injected_hits),
+        "scores":         [h["score"] for h in all_hits],
+        "injected_files": [h["meta"].get("file", "") for h in injected_hits],
+    }
+    try:
+        with open(log_path, "a") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
 
 
 def print_symbol(m, score_label):
@@ -58,6 +80,10 @@ def main():
     p.add_argument('--kind',       default='', help='Filter by kind/file_kind')
     p.add_argument('--type',       default='', help='Filter by type: symbol | change')
     p.add_argument('--limit',      type=int, default=10)
+    p.add_argument('--threshold',  type=float, default=THRESHOLD_DEFAULT,
+                   help='Minimum relevance score to include a result (default: 0.72)')
+    p.add_argument('--no-log',     action='store_true',
+                   help='Skip audit logging to query-log.jsonl')
     args = p.parse_args()
 
     if not args.query:
@@ -92,11 +118,22 @@ def main():
             print("No results found.")
             return
 
+        all_hits = []
+        injected_hits = []
         for i in range(len(results['ids'][0])):
             m = results['metadatas'][0][i]
             dist  = results['distances'][0][i] if results.get('distances') else 0
             score = max(0, 1 - dist)
-            print_result(m, f"{score:.2%}")
+            all_hits.append({"score": score, "meta": m})
+            if score >= args.threshold:
+                injected_hits.append({"score": score, "meta": m})
+                print_result(m, f"{score:.2%}")
+
+        if not args.no_log:
+            _log_query(args.query, all_hits, injected_hits, args.chroma)
+
+        if not injected_hits:
+            print(f"No results above relevance threshold ({args.threshold:.0%}).")
 
     except Exception as e:
         print(f"[query-memory] Chroma error: {e}", file=sys.stderr)
