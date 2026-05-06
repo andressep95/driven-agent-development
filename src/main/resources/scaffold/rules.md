@@ -26,6 +26,7 @@ task → [hook injects memory + skill hint] → load skill → execute → commi
 | `scan-memory` | Empty memory or major refactor |
 | `skill-creator` | Adding agent instructions or patterns |
 | `skill-sync` | After creating or modifying a skill |
+| `vercel-react-best-practices` | Writing, reviewing, or refactoring React/Next.js code |
 
 ## Auto-Invoke Skills
 
@@ -39,6 +40,7 @@ task → [hook injects memory + skill hint] → load skill → execute → commi
 | Creating or modifying a skill | `skill-creator` |
 | After creating or modifying a skill | `skill-sync` |
 | Finding or installing a skill | `find-skills` |
+| Writing or refactoring React/Next.js components | `vercel-react-best-practices` |
 
 ## Architecture Decision Records
 
