@@ -6,6 +6,45 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### [6513f86] — 2026-05-06
+
+**feat(skills): add vercel-react-best-practices skill**
+
+> what: add vercel-react-best-practices skill to .agents/skills and scaffold
+> why: enable React/Next.js performance optimization guidelines in future projects
+> breaking: none
+
+#### Added
+
+- `.agents/skills/vercel-react-best-practices/AGENTS.md`
+- `.agents/skills/vercel-react-best-practices/README.md`
+- `.agents/skills/vercel-react-best-practices/SKILL.md`
+- `.agents/skills/vercel-react-best-practices/metadata.json`
+- `.agents/skills/vercel-react-best-practices/rules/_sections.md`
+- `.agents/skills/vercel-react-best-practices/rules/_template.md`
+- `.agents/skills/vercel-react-best-practices/rules/advanced-effect-event-deps.md`
+- `.agents/skills/vercel-react-best-practices/rules/advanced-event-handler-refs.md`
+- `.agents/skills/vercel-react-best-practices/rules/advanced-init-once.md`
+- `.agents/skills/vercel-react-best-practices/rules/advanced-use-latest.md`
+- `.agents/skills/vercel-react-best-practices/rules/async-api-routes.md`
+- `.agents/skills/vercel-react-best-practices/rules/async-cheap-condition-before-await.md`
+- `.agents/skills/vercel-react-best-practices/rules/async-defer-await.md`
+- `.agents/skills/vercel-react-best-practices/rules/async-dependencies.md`
+- `.agents/skills/vercel-react-best-practices/rules/async-parallel.md`
+- `.agents/skills/vercel-react-best-practices/rules/async-suspense-boundaries.md`
+- `.agents/skills/vercel-react-best-practices/rules/bundle-analyzable-paths.md`
+- `.agents/skills/vercel-react-best-practices/rules/bundle-barrel-imports.md`
+- `.agents/skills/vercel-react-best-practices/rules/bundle-conditional.md`
+- `.agents/skills/vercel-react-best-practices/rules/bundle-defer-third-party.md`
+- _…and 132 more_
+
+#### Changed
+
+- `.agents/rules.md`
+- `src/main/resources/scaffold/rules.md`
+
+---
+
 ### [9e9340f] — 2026-05-02
 
 **feat(skills): add Vue 3 and Vue PrimeVue skills**
