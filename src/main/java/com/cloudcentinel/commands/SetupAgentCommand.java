@@ -1,19 +1,11 @@
 package com.cloudcentinel.commands;
 
-import org.jline.terminal.Attributes;
-import org.jline.terminal.Terminal;
-import org.jline.terminal.TerminalBuilder;
+import com.cloudcentinel.setup.*;
 import picocli.CommandLine.Command;
 
-import java.io.*;
-import java.net.URISyntaxException;
-import java.net.URL;
-import java.nio.file.*;
-import java.nio.file.attribute.PosixFilePermission;
+import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.Callable;
-import java.util.jar.JarEntry;
-import java.util.jar.JarFile;
 
 @Command(
     name = "setup-agent",
@@ -22,26 +14,16 @@ import java.util.jar.JarFile;
 )
 public class SetupAgentCommand implements Callable<Integer> {
 
-    private static final String SCAFFOLD = "scaffold/";
-
     private final Path root = Path.of(System.getProperty("user.dir"));
     private final Path home = Path.of(System.getProperty("user.home"));
-
-    private boolean interactive() {
-        return System.console() != null;
-    }
 
     @Override
     public Integer call() {
         if (!isGitRepo()) {
             if (interactive()) {
-                System.out.print("[setup-agent] No git repository found in this directory.\n"
-                        + "Initialize one? [s/n]: ");
+                System.out.print("[setup-agent] No git repository found.\nInitialize one? [s/n]: ");
                 String answer = new Scanner(System.in).nextLine().trim().toLowerCase();
-                if (!answer.equals("s")) {
-                    System.out.println("[setup-agent] Aborted.");
-                    return 0;
-                }
+                if (!answer.equals("s")) { System.out.println("[setup-agent] Aborted."); return 0; }
             } else {
                 System.out.println("[setup-agent] No git repository found — initializing (non-interactive mode).");
             }
@@ -49,71 +31,57 @@ public class SetupAgentCommand implements Callable<Integer> {
             if (code != 0) return code;
         }
 
-        // ── Step 1: select AI tools ───────────────────────────────────────────
+        ScaffoldInstaller installer = new ScaffoldInstaller(root, home, getClass());
+        SkillRegistry     registry  = new SkillRegistry(getClass());
+
+        // ── Step 1: AI tools ──────────────────────────────────────────────────
         Set<String> tools;
         try {
-            if (interactive()) {
-                tools = selectTools();
-            } else {
-                tools = new LinkedHashSet<>(List.of("claude", "kiro", "opencode"));
-                System.out.println("[setup-agent] Non-interactive mode — selecting all tools.");
-            }
+            tools = interactive() ? pickTools() : allTools();
         } catch (Exception e) {
-            System.err.println("[setup-agent] ERROR reading input: " + e.getMessage());
-            return 1;
+            System.err.println("[setup-agent] ERROR: " + e.getMessage()); return 1;
         }
-        if (tools.isEmpty()) {
-            System.out.println("[setup-agent] No tools selected. Aborted.");
-            return 0;
-        }
+        if (tools.isEmpty()) { System.out.println("[setup-agent] No tools selected. Aborted."); return 0; }
 
-        // ── Step 2: select skills ─────────────────────────────────────────────
-        Set<String> selectedSkills;
+        // ── Step 2: skills ────────────────────────────────────────────────────
+        Set<String> skills;
         try {
-            List<String> available = listAvailableSkills();
-            if (interactive()) {
-                selectedSkills = selectSkills(available);
-            } else {
-                selectedSkills = new LinkedHashSet<>(available);
-                System.out.println("[setup-agent] Non-interactive mode — selecting all skills.");
-            }
+            List<String> available = registry.listSkills();
+            skills = interactive() ? pickSkills(available) : new LinkedHashSet<>(available);
+            if (!interactive()) System.out.println("[setup-agent] Non-interactive — selecting all skills.");
         } catch (Exception e) {
-            System.err.println("[setup-agent] ERROR reading skills: " + e.getMessage());
-            return 1;
+            System.err.println("[setup-agent] ERROR: " + e.getMessage()); return 1;
         }
 
+        // ── Install ───────────────────────────────────────────────────────────
         System.out.println("\n[setup-agent] Bootstrapping agent scaffold...\n");
         try {
-            // ── shared ────────────────────────────────────────────────────────
-            extractFile("rules.md", ".agents/rules.md");
-            extractSelectedSkills(selectedSkills);
-            extractDir("scripts/",  ".agents/scripts/");
-            makeAllExecutable(".agents/scripts/");
-            mkdir(".agents/memory");
-            gitHook("scripts/post-commit", ".git/hooks/post-commit");
+            installer.extractFile("rules.md", ".agents/rules.md");
+            installer.cleanSkillsDir();
+            installer.extractSelectedSkills(skills);
+            RulesPatcher.patch(root.resolve(".agents/rules.md"), registry.parseMetas(skills));
+            installer.extractDir("scripts/", ".agents/scripts/");
+            installer.makeAllExecutable(".agents/scripts/");
+            installer.mkdir(".agents/memory");
+            installer.gitHook("scripts/post-commit", ".git/hooks/post-commit");
 
-            // ── Claude ────────────────────────────────────────────────────────
             if (tools.contains("claude")) {
-                extractFile(".claude/settings.json", ".claude/settings.json");
-                symlink("CLAUDE.md",      ".agents/rules.md");
-                symlink(".claude/skills", "../.agents/skills");
-                globalHook("hooks/post-commit-clear.sh", ".claude/hooks/post-commit-clear.sh");
+                installer.extractFile(".claude/settings.json", ".claude/settings.json");
+                installer.symlink("CLAUDE.md",      ".agents/rules.md");
+                installer.symlink(".claude/skills", "../.agents/skills");
+                installer.globalHook("hooks/post-commit-clear.sh", ".claude/hooks/post-commit-clear.sh");
             }
-
-            // ── Kiro ──────────────────────────────────────────────────────────
             if (tools.contains("kiro")) {
-                extractFile(".kiro/hooks/post-commit-clear.yaml", ".kiro/hooks/post-commit-clear.yaml");
-                extractFile(".kiro/hooks/user-prompt-submit.yaml", ".kiro/hooks/user-prompt-submit.yaml");
-                extractFile(".kiro/hooks/session-start.yaml", ".kiro/hooks/session-start.yaml");
-                extractFile(".kiro/hooks/validate-commit.yaml", ".kiro/hooks/validate-commit.yaml");
-                symlink(".kiro/skills",                    "../.agents/skills");
-                symlink(".kiro/steering/project-rules.md", "../../.agents/rules.md");
-                globalHook("hooks/post-commit-clear.sh", ".kiro/hooks/post-commit-clear.sh");
+                installer.extractFile(".kiro/hooks/post-commit-clear.yaml",   ".kiro/hooks/post-commit-clear.yaml");
+                installer.extractFile(".kiro/hooks/user-prompt-submit.yaml",  ".kiro/hooks/user-prompt-submit.yaml");
+                installer.extractFile(".kiro/hooks/session-start.yaml",       ".kiro/hooks/session-start.yaml");
+                installer.extractFile(".kiro/hooks/validate-commit.yaml",     ".kiro/hooks/validate-commit.yaml");
+                installer.symlink(".kiro/skills",                    "../.agents/skills");
+                installer.symlink(".kiro/steering/project-rules.md", "../../.agents/rules.md");
+                installer.globalHook("hooks/post-commit-clear.sh", ".kiro/hooks/post-commit-clear.sh");
             }
-
-            // ── OpenCode ──────────────────────────────────────────────────────
             if (tools.contains("opencode")) {
-                symlink("AGENTS.md", ".agents/rules.md");
+                installer.symlink("AGENTS.md", ".agents/rules.md");
             }
 
             System.out.println("\n[setup-agent] Done.");
@@ -127,270 +95,42 @@ public class SetupAgentCommand implements Callable<Integer> {
         }
     }
 
-    // ── interactive menus ─────────────────────────────────────────────────────
+    // ── selection helpers ─────────────────────────────────────────────────────
 
-    private Set<String> selectTools() throws Exception {
-        String[] labels   = {"Claude Code", "Kiro", "OpenCode"};
-        String[] keys     = {"claude",      "kiro", "opencode"};
-        boolean[] defaults = {true,          true,   true};
-        return selectFromChecklist("[setup-agent] Select AI tools to configure:", labels, keys, defaults);
+    private static Set<String> pickTools() throws Exception {
+        return Checklist.select(
+            "[setup-agent] Select AI tools to configure:",
+            new String[]{"Claude Code", "Kiro", "OpenCode"},
+            new String[]{"claude",      "kiro", "opencode"},
+            new boolean[]{true,          true,   true}
+        );
     }
 
-    private Set<String> selectSkills(List<String> available) throws Exception {
-        String[] labels   = available.toArray(new String[0]);
-        String[] keys     = available.toArray(new String[0]);
-        boolean[] defaults = new boolean[available.size()];
-        Arrays.fill(defaults, true);
-        return selectFromChecklist("[setup-agent] Select skills to install:", labels, keys, defaults);
+    private static Set<String> allTools() {
+        System.out.println("[setup-agent] Non-interactive — selecting all tools.");
+        return new LinkedHashSet<>(List.of("claude", "kiro", "opencode"));
     }
 
-    private Set<String> selectFromChecklist(String title, String[] labels, String[] keys, boolean[] defaults) throws Exception {
-        boolean[] marked = Arrays.copyOf(defaults, defaults.length);
-        int cursor = 0;
-
-        try (Terminal terminal = TerminalBuilder.builder().system(true).build()) {
-            Attributes saved = terminal.enterRawMode();
-            PrintWriter out  = terminal.writer();
-            try {
-                renderChecklist(out, title, labels, marked, cursor);
-                while (true) {
-                    int ch = terminal.reader().read();
-                    if (ch == 27) {
-                        int b = terminal.reader().read();
-                        if (b == '[') {
-                            int dir = terminal.reader().read();
-                            if (dir == 'A' && cursor > 0) cursor--;
-                            else if (dir == 'B' && cursor < labels.length - 1) cursor++;
-                        }
-                    } else if (ch == ' ') {
-                        marked[cursor] = !marked[cursor];
-                    } else if (ch == 'a' || ch == 'A') {
-                        boolean anyOn = false;
-                        for (boolean m : marked) if (m) { anyOn = true; break; }
-                        Arrays.fill(marked, !anyOn);
-                    } else if (ch == '\r' || ch == '\n') {
-                        break;
-                    }
-                    clearLines(out, labels.length + 3);
-                    renderChecklist(out, title, labels, marked, cursor);
-                }
-            } finally {
-                terminal.setAttributes(saved);
-                out.println();
-                out.flush();
-            }
-        }
-
-        Set<String> result = new LinkedHashSet<>();
-        for (int i = 0; i < keys.length; i++) {
-            if (marked[i]) result.add(keys[i]);
-        }
-        return result;
-    }
-
-    private void renderChecklist(PrintWriter out, String title, String[] labels, boolean[] marked, int cursor) {
-        out.println(title);
-        out.println("  ↑↓ navigate  ·  Space toggle  ·  A select all/none  ·  Enter confirm\n");
-        for (int i = 0; i < labels.length; i++) {
-            String pointer = i == cursor ? "> " : "  ";
-            String check   = marked[i]   ? "x" : " ";
-            out.printf("  %s[%s] %s%n", pointer, check, labels[i]);
-        }
-        out.flush();
-    }
-
-    private void clearLines(PrintWriter out, int n) {
-        for (int i = 0; i < n; i++) out.print("\033[1A\033[2K");
-        out.flush();
-    }
-
-    // ── skill discovery ───────────────────────────────────────────────────────
-
-    private List<String> listAvailableSkills() throws Exception {
-        String prefix = SCAFFOLD + "skills/";
-        Set<String> skills = new LinkedHashSet<>();
-        File jarFile = jarSource();
-
-        if (jarFile != null) {
-            try (JarFile jar = new JarFile(jarFile)) {
-                Enumeration<JarEntry> entries = jar.entries();
-                while (entries.hasMoreElements()) {
-                    JarEntry entry = entries.nextElement();
-                    String name = entry.getName();
-                    if (name.startsWith(prefix) && name.length() > prefix.length()) {
-                        String rest = name.substring(prefix.length());
-                        int slash = rest.indexOf('/');
-                        if (slash > 0) skills.add(rest.substring(0, slash));
-                    }
-                }
-            }
-        } else {
-            URL dirUrl = getClass().getClassLoader().getResource(prefix);
-            if (dirUrl != null) {
-                Path srcDir = Path.of(dirUrl.toURI());
-                Files.list(srcDir)
-                    .filter(Files::isDirectory)
-                    .map(p -> p.getFileName().toString())
-                    .sorted()
-                    .forEach(skills::add);
-            }
-        }
-        return new ArrayList<>(skills);
-    }
-
-    // ── extract ───────────────────────────────────────────────────────────────
-
-    private void extractFile(String from, String to) throws IOException {
-        Path target = root.resolve(to);
-        Files.createDirectories(target.getParent());
-        try (InputStream is = resource(SCAFFOLD + from)) {
-            Files.copy(is, target, StandardCopyOption.REPLACE_EXISTING);
-        }
-        log("extract", to);
-    }
-
-    private void extractSelectedSkills(Set<String> skills) throws Exception {
-        if (skills.isEmpty()) {
-            log("extract", ".agents/skills/ (none selected)");
-            return;
-        }
-        for (String skill : skills) {
-            extractDir("skills/" + skill + "/", ".agents/skills/" + skill + "/");
-        }
-        log("extract", ".agents/skills/ (" + skills.size() + " skills)");
-    }
-
-    private void extractDir(String from, String to) throws Exception {
-        String prefix   = SCAFFOLD + from;
-        Path   targetDir = root.resolve(to);
-        File   jarFile   = jarSource();
-
-        if (jarFile != null) {
-            try (JarFile jar = new JarFile(jarFile)) {
-                Enumeration<JarEntry> entries = jar.entries();
-                while (entries.hasMoreElements()) {
-                    JarEntry entry = entries.nextElement();
-                    String name = entry.getName();
-                    if (name.startsWith(prefix) && !entry.isDirectory()) {
-                        Path out = targetDir.resolve(name.substring(prefix.length()));
-                        Files.createDirectories(out.getParent());
-                        try (InputStream is = jar.getInputStream(entry)) {
-                            Files.copy(is, out, StandardCopyOption.REPLACE_EXISTING);
-                        }
-                    }
-                }
-            }
-        } else {
-            URL dirUrl = getClass().getClassLoader().getResource(prefix);
-            if (dirUrl == null) throw new FileNotFoundException("Resource dir not found: " + prefix);
-            Path srcDir = Path.of(dirUrl.toURI());
-            Files.walk(srcDir)
-                .filter(Files::isRegularFile)
-                .forEach(src -> {
-                    try {
-                        Path out = targetDir.resolve(srcDir.relativize(src).toString());
-                        Files.createDirectories(out.getParent());
-                        Files.copy(src, out, StandardCopyOption.REPLACE_EXISTING);
-                    } catch (IOException ex) {
-                        throw new UncheckedIOException(ex);
-                    }
-                });
-        }
-        log("extract", to + " (dir)");
-    }
-
-    // ── dirs & links ──────────────────────────────────────────────────────────
-
-    private void mkdir(String path) throws IOException {
-        Files.createDirectories(root.resolve(path));
-        log("mkdir  ", path);
-    }
-
-    private void symlink(String linkPath, String targetStr) throws IOException {
-        Path link = root.resolve(linkPath);
-        Files.createDirectories(link.getParent());
-        if (Files.isSymbolicLink(link) || Files.exists(link)) Files.delete(link);
-        Files.createSymbolicLink(link, Path.of(targetStr));
-        log("symlink", linkPath + " → " + targetStr);
-    }
-
-    // ── hooks ─────────────────────────────────────────────────────────────────
-
-    private void gitHook(String from, String to) throws IOException {
-        Path target = root.resolve(to);
-        Files.createDirectories(target.getParent());
-        try (InputStream is = resource(SCAFFOLD + from)) {
-            Files.copy(is, target, StandardCopyOption.REPLACE_EXISTING);
-        }
-        makeExecutable(target);
-        log("hook   ", to + " (+x)");
-    }
-
-    private void globalHook(String from, String homeRelPath) throws IOException {
-        Path target = home.resolve(homeRelPath);
-        Files.createDirectories(target.getParent());
-        try (InputStream is = resource(SCAFFOLD + from)) {
-            Files.copy(is, target, StandardCopyOption.REPLACE_EXISTING);
-        }
-        makeExecutable(target);
-        log("global ", "~/" + homeRelPath + " (+x)");
-    }
-
-    // ── helpers ───────────────────────────────────────────────────────────────
-
-    private InputStream resource(String path) throws FileNotFoundException {
-        InputStream is = getClass().getClassLoader().getResourceAsStream(path);
-        if (is == null) throw new FileNotFoundException("Resource not found: " + path);
-        return is;
-    }
-
-    private File jarSource() {
-        try {
-            File f = new File(getClass().getProtectionDomain().getCodeSource().getLocation().toURI());
-            return f.isFile() ? f : null;
-        } catch (URISyntaxException e) {
-            return null;
-        }
-    }
-
-    private void makeExecutable(Path file) throws IOException {
-        try {
-            Set<PosixFilePermission> perms = new HashSet<>(Files.getPosixFilePermissions(file));
-            perms.add(PosixFilePermission.OWNER_EXECUTE);
-            perms.add(PosixFilePermission.GROUP_EXECUTE);
-            Files.setPosixFilePermissions(file, perms);
-        } catch (UnsupportedOperationException ignored) {
-            // Windows — skip
-        }
-    }
-
-    private void makeAllExecutable(String dirPath) throws IOException {
-        Path dir = root.resolve(dirPath);
-        if (!Files.isDirectory(dir)) return;
-        Files.walk(dir)
-            .filter(Files::isRegularFile)
-            .forEach(f -> {
-                try { makeExecutable(f); } catch (IOException ignored) {}
-            });
-    }
-
-    private void log(String action, String detail) {
-        System.out.printf("  [%s] %s%n", action, detail);
+    private static Set<String> pickSkills(List<String> available) throws Exception {
+        String[]  labels = available.toArray(new String[0]);
+        boolean[] dflt   = new boolean[available.size()];
+        Arrays.fill(dflt, true);
+        return Checklist.select("[setup-agent] Select skills to install:", labels, labels, dflt);
     }
 
     // ── git ───────────────────────────────────────────────────────────────────
+
+    private boolean interactive() { return System.console() != null; }
 
     private boolean isGitRepo() {
         try {
             ProcessBuilder pb = new ProcessBuilder("git", "rev-parse", "--git-dir");
             pb.redirectErrorStream(true);
-            Process proc = pb.start();
-            String out = new String(proc.getInputStream().readAllBytes()).trim();
-            proc.waitFor();
+            Process p = pb.start();
+            String out = new String(p.getInputStream().readAllBytes()).trim();
+            p.waitFor();
             return !out.startsWith("fatal:");
-        } catch (Exception e) {
-            return false;
-        }
+        } catch (Exception e) { return false; }
     }
 
     private int initRepo() {
