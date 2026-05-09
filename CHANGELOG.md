@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### [02c4d26] — 2026-05-08
+
+**feat(cli): add interactive skill selection menu to setup-agent**
+
+> what: Adds a two-step interactive checklist — first AI tools, then skills —
+> so users control exactly which skills get installed locally; skills are
+> discovered dynamically from the jar at runtime
+> why:  Installing all skills unconditionally saturates the AI context window;
+
+#### Changed
+
+- `src/main/java/com/cloudcentinel/commands/SetupAgentCommand.java`
+
+---
+
 ### [6513f86] — 2026-05-06
 
 **feat(skills): add vercel-react-best-practices skill**
