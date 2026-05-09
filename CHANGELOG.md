@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### [97c6809] — 2026-05-09
+
+**feat(skills): add kafka-development-practices skill for Java**
+
+> what: Adds a Java-first, framework-agnostic Kafka skill to the scaffold
+> with Iron Laws, canonical producer/consumer patterns, DLQ, Streams,
+> TopologyTestDriver tests, and anti-patterns table
+> why:  Original skill from the ecosystem was Scala-only; projects using
+
+#### Added
+
+- `src/main/resources/scaffold/skills/kafka-development-practices/SKILL.md`
+- `src/main/resources/scaffold/skills/kafka-development-practices/references/RULES.md`
+
+---
+
 ### [3f9abe4] — 2026-05-09
 
 **refactor(cli): modularize setup-agent into setup/ package**
