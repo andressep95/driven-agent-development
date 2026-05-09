@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### [3f9abe4] — 2026-05-09
+
+**refactor(cli): modularize setup-agent into setup/ package**
+
+> what: Splits SetupAgentCommand into 5 focused classes — Checklist,
+> ScaffoldInstaller, SkillRegistry, RulesPatcher, SkillMeta —
+> and fixes resource leaks, raw-mode CR/LF drift, stale skills
+> on re-run, and rules.md table sync; adds Java 17 to pom.xml
+
+#### Added
+
+- `src/main/java/com/cloudcentinel/setup/Checklist.java`
+- `src/main/java/com/cloudcentinel/setup/RulesPatcher.java`
+- `src/main/java/com/cloudcentinel/setup/ScaffoldInstaller.java`
+- `src/main/java/com/cloudcentinel/setup/SkillMeta.java`
+- `src/main/java/com/cloudcentinel/setup/SkillRegistry.java`
+
+#### Changed
+
+- `pom.xml`
+- `src/main/java/com/cloudcentinel/commands/SetupAgentCommand.java`
+
+---
+
 ### [02c4d26] — 2026-05-08
 
 **feat(cli): add interactive skill selection menu to setup-agent**
