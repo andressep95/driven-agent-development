@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "skills": {
+    "java-microservices": {
+      "source": "pluginagentmarketplace/custom-plugin-java",
+      "sourceType": "github",
+      "skillPath": "skills/java-microservices/SKILL.md",
+      "computedHash": "19842d78086fa9d649d098a7bd77ed93cd6def80cd83c8bf2ce83937ad251663"
+    },
+    "saga-orchestration": {
+      "source": "wshobson/agents",
+      "sourceType": "github",
+      "skillPath": "plugins/backend-development/skills/saga-orchestration/SKILL.md",
+      "computedHash": "3250e78e321cf65df11b077578d33a6db93852427c798e5cf4c74e202897cc90"
+    }
+  }
+}

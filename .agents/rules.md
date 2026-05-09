@@ -16,31 +16,29 @@ task → [hook injects memory + skill hint] → load skill → execute → commi
 
 | Skill | Trigger |
 |-------|---------|
-| `clean-ddd-hexagonal` | APIs, domain models, aggregates, use cases |
 | `commit` | Before any git commit |
-| `endpoint-trace` | Documenting or auditing an endpoint |
-| `feature-docs` | After completing a feature |
-| `find-skills` | User asks "how do I do X" |
-| `openapi` | Adding, modifying, or deleting an endpoint |
-| `query-memory` | Need deeper context beyond what the hook injected |
-| `scan-memory` | Empty memory or major refactor |
-| `skill-creator` | Adding agent instructions or patterns |
+| `endpoint-trace` | document endpoint code trace |
+| `feature-docs` | After updating api/openapi.yaml with a completed endpoint |
+| `find-skills` | Find a skill for a task |
+| `openapi` | Adding a new endpoint |
+| `query-memory` | Search codebase by intent or behavior |
+| `scan-memory` | First-time project setup |
+| `skill-creator` | Create a new skill |
 | `skill-sync` | After creating or modifying a skill |
-| `vercel-react-best-practices` | Writing, reviewing, or refactoring React/Next.js code |
 
 ## Auto-Invoke Skills
 
 | Action | Skill |
 |--------|-------|
 | Before any git commit | `commit` |
-| Designing APIs, domain models, use cases | `clean-ddd-hexagonal` |
-| Adding or modifying an endpoint | `openapi` |
-| Documenting a completed feature | `feature-docs` |
-| Documenting an endpoint call chain | `endpoint-trace` |
-| Creating or modifying a skill | `skill-creator` |
+| document endpoint code trace | `endpoint-trace` |
+| After updating api/openapi.yaml with a completed endpoint | `feature-docs` |
+| Find a skill for a task | `find-skills` |
+| Adding a new endpoint | `openapi` |
+| Search codebase by intent or behavior | `query-memory` |
+| First-time project setup | `scan-memory` |
+| Create a new skill | `skill-creator` |
 | After creating or modifying a skill | `skill-sync` |
-| Finding or installing a skill | `find-skills` |
-| Writing or refactoring React/Next.js components | `vercel-react-best-practices` |
 
 ## Architecture Decision Records
 
