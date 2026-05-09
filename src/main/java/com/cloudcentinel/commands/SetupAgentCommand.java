@@ -49,12 +49,13 @@ public class SetupAgentCommand implements Callable<Integer> {
             if (code != 0) return code;
         }
 
+        // ── Step 1: select AI tools ───────────────────────────────────────────
         Set<String> tools;
         try {
             if (interactive()) {
                 tools = selectTools();
             } else {
-                tools = Set.of("claude", "kiro", "opencode");
+                tools = new LinkedHashSet<>(List.of("claude", "kiro", "opencode"));
                 System.out.println("[setup-agent] Non-interactive mode — selecting all tools.");
             }
         } catch (Exception e) {
@@ -66,11 +67,26 @@ public class SetupAgentCommand implements Callable<Integer> {
             return 0;
         }
 
+        // ── Step 2: select skills ─────────────────────────────────────────────
+        Set<String> selectedSkills;
+        try {
+            List<String> available = listAvailableSkills();
+            if (interactive()) {
+                selectedSkills = selectSkills(available);
+            } else {
+                selectedSkills = new LinkedHashSet<>(available);
+                System.out.println("[setup-agent] Non-interactive mode — selecting all skills.");
+            }
+        } catch (Exception e) {
+            System.err.println("[setup-agent] ERROR reading skills: " + e.getMessage());
+            return 1;
+        }
+
         System.out.println("\n[setup-agent] Bootstrapping agent scaffold...\n");
         try {
             // ── shared ────────────────────────────────────────────────────────
             extractFile("rules.md", ".agents/rules.md");
-            extractDir("skills/",   ".agents/skills/");
+            extractSelectedSkills(selectedSkills);
             extractDir("scripts/",  ".agents/scripts/");
             makeAllExecutable(".agents/scripts/");
             mkdir(".agents/memory");
@@ -111,17 +127,32 @@ public class SetupAgentCommand implements Callable<Integer> {
         }
     }
 
+    // ── interactive menus ─────────────────────────────────────────────────────
+
     private Set<String> selectTools() throws Exception {
-        String[] labels  = {"Claude Code", "Kiro", "OpenCode"};
-        String[] keys    = {"claude",      "kiro", "opencode"};
-        boolean[] marked = {true,          true,   true};
+        String[] labels   = {"Claude Code", "Kiro", "OpenCode"};
+        String[] keys     = {"claude",      "kiro", "opencode"};
+        boolean[] defaults = {true,          true,   true};
+        return selectFromChecklist("[setup-agent] Select AI tools to configure:", labels, keys, defaults);
+    }
+
+    private Set<String> selectSkills(List<String> available) throws Exception {
+        String[] labels   = available.toArray(new String[0]);
+        String[] keys     = available.toArray(new String[0]);
+        boolean[] defaults = new boolean[available.size()];
+        Arrays.fill(defaults, true);
+        return selectFromChecklist("[setup-agent] Select skills to install:", labels, keys, defaults);
+    }
+
+    private Set<String> selectFromChecklist(String title, String[] labels, String[] keys, boolean[] defaults) throws Exception {
+        boolean[] marked = Arrays.copyOf(defaults, defaults.length);
         int cursor = 0;
 
         try (Terminal terminal = TerminalBuilder.builder().system(true).build()) {
             Attributes saved = terminal.enterRawMode();
             PrintWriter out  = terminal.writer();
             try {
-                renderChecklist(out, labels, marked, cursor);
+                renderChecklist(out, title, labels, marked, cursor);
                 while (true) {
                     int ch = terminal.reader().read();
                     if (ch == 27) {
@@ -133,11 +164,15 @@ public class SetupAgentCommand implements Callable<Integer> {
                         }
                     } else if (ch == ' ') {
                         marked[cursor] = !marked[cursor];
+                    } else if (ch == 'a' || ch == 'A') {
+                        boolean anyOn = false;
+                        for (boolean m : marked) if (m) { anyOn = true; break; }
+                        Arrays.fill(marked, !anyOn);
                     } else if (ch == '\r' || ch == '\n') {
                         break;
                     }
                     clearLines(out, labels.length + 3);
-                    renderChecklist(out, labels, marked, cursor);
+                    renderChecklist(out, title, labels, marked, cursor);
                 }
             } finally {
                 terminal.setAttributes(saved);
@@ -153,9 +188,9 @@ public class SetupAgentCommand implements Callable<Integer> {
         return result;
     }
 
-    private void renderChecklist(PrintWriter out, String[] labels, boolean[] marked, int cursor) {
-        out.println("[setup-agent] Select AI tools to configure:");
-        out.println("  ↑↓ navigate  ·  Space toggle  ·  Enter confirm\n");
+    private void renderChecklist(PrintWriter out, String title, String[] labels, boolean[] marked, int cursor) {
+        out.println(title);
+        out.println("  ↑↓ navigate  ·  Space toggle  ·  A select all/none  ·  Enter confirm\n");
         for (int i = 0; i < labels.length; i++) {
             String pointer = i == cursor ? "> " : "  ";
             String check   = marked[i]   ? "x" : " ";
@@ -169,6 +204,40 @@ public class SetupAgentCommand implements Callable<Integer> {
         out.flush();
     }
 
+    // ── skill discovery ───────────────────────────────────────────────────────
+
+    private List<String> listAvailableSkills() throws Exception {
+        String prefix = SCAFFOLD + "skills/";
+        Set<String> skills = new LinkedHashSet<>();
+        File jarFile = jarSource();
+
+        if (jarFile != null) {
+            try (JarFile jar = new JarFile(jarFile)) {
+                Enumeration<JarEntry> entries = jar.entries();
+                while (entries.hasMoreElements()) {
+                    JarEntry entry = entries.nextElement();
+                    String name = entry.getName();
+                    if (name.startsWith(prefix) && name.length() > prefix.length()) {
+                        String rest = name.substring(prefix.length());
+                        int slash = rest.indexOf('/');
+                        if (slash > 0) skills.add(rest.substring(0, slash));
+                    }
+                }
+            }
+        } else {
+            URL dirUrl = getClass().getClassLoader().getResource(prefix);
+            if (dirUrl != null) {
+                Path srcDir = Path.of(dirUrl.toURI());
+                Files.list(srcDir)
+                    .filter(Files::isDirectory)
+                    .map(p -> p.getFileName().toString())
+                    .sorted()
+                    .forEach(skills::add);
+            }
+        }
+        return new ArrayList<>(skills);
+    }
+
     // ── extract ───────────────────────────────────────────────────────────────
 
     private void extractFile(String from, String to) throws IOException {
@@ -178,6 +247,17 @@ public class SetupAgentCommand implements Callable<Integer> {
             Files.copy(is, target, StandardCopyOption.REPLACE_EXISTING);
         }
         log("extract", to);
+    }
+
+    private void extractSelectedSkills(Set<String> skills) throws Exception {
+        if (skills.isEmpty()) {
+            log("extract", ".agents/skills/ (none selected)");
+            return;
+        }
+        for (String skill : skills) {
+            extractDir("skills/" + skill + "/", ".agents/skills/" + skill + "/");
+        }
+        log("extract", ".agents/skills/ (" + skills.size() + " skills)");
     }
 
     private void extractDir(String from, String to) throws Exception {
@@ -312,7 +392,6 @@ public class SetupAgentCommand implements Callable<Integer> {
             return false;
         }
     }
-
 
     private int initRepo() {
         try {
