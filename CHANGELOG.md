@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### [2722710] — 2026-05-09
+
+**feat(skills): add saga-orchestration and java-microservices to scaffold**
+
+> what: Adds saga-orchestration and java-microservices skills to scaffold resources with auto_invoke metadata; updates rules.md tables
+> why: Provides distributed transaction and Spring Cloud patterns as first-class scaffold skills available via setup-agent CLI
+> breaking: false
+
+#### Added
+
+- `skills-lock.json`
+- `src/main/resources/scaffold/skills/java-microservices/SKILL.md`
+- `src/main/resources/scaffold/skills/java-microservices/references/GUIDE.md`
+- `src/main/resources/scaffold/skills/java-microservices/references/PATTERNS.md`
+- `src/main/resources/scaffold/skills/saga-orchestration/SKILL.md`
+- `src/main/resources/scaffold/skills/saga-orchestration/references/ADVANCED-PATTERNS.md`
+
+#### Changed
+
+- `.agents/rules.md`
+
+---
+
 ### [97c6809] — 2026-05-09
 
 **feat(skills): add kafka-development-practices skill for Java**
