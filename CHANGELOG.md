@@ -6,6 +6,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### [666af42] — 2026-05-14
+
+**feat(skills): add oracle-db to scaffold from oracle/skills@db**
+
+> what: Adds the official Oracle Database skill (156 files, 17 categories)
+> to the scaffold so the CLI can offer it as an installation option
+> why:  Provides comprehensive Oracle DB guidance covering SQL, PL/SQL,
+> vector search, performance tuning, security, ORDS, migrations,
+
+#### Added
+
+- `src/main/resources/scaffold/skills/oracle-db/SKILL.md`
+- `src/main/resources/scaffold/skills/oracle-db/admin/backup-recovery.md`
+- `src/main/resources/scaffold/skills/oracle-db/admin/dataguard.md`
+- `src/main/resources/scaffold/skills/oracle-db/admin/redo-log-management.md`
+- `src/main/resources/scaffold/skills/oracle-db/admin/rman-basics.md`
+- `src/main/resources/scaffold/skills/oracle-db/admin/undo-management.md`
+- `src/main/resources/scaffold/skills/oracle-db/admin/user-management.md`
+- `src/main/resources/scaffold/skills/oracle-db/agent/client-identification.md`
+- `src/main/resources/scaffold/skills/oracle-db/agent/destructive-op-guards.md`
+- `src/main/resources/scaffold/skills/oracle-db/agent/idempotency-patterns.md`
+- `src/main/resources/scaffold/skills/oracle-db/agent/intent-disambiguation.md`
+- `src/main/resources/scaffold/skills/oracle-db/agent/nl-to-sql-patterns.md`
+- `src/main/resources/scaffold/skills/oracle-db/agent/ora-error-catalog.md`
+- `src/main/resources/scaffold/skills/oracle-db/agent/safe-dml-patterns.md`
+- `src/main/resources/scaffold/skills/oracle-db/agent/schema-discovery.md`
+- `src/main/resources/scaffold/skills/oracle-db/appdev/connection-pooling.md`
+- `src/main/resources/scaffold/skills/oracle-db/appdev/dotnet-oracle.md`
+- `src/main/resources/scaffold/skills/oracle-db/appdev/golang-oracle.md`
+- `src/main/resources/scaffold/skills/oracle-db/appdev/java-oracle-jdbc.md`
+- `src/main/resources/scaffold/skills/oracle-db/appdev/json-in-oracle.md`
+- _…and 136 more_
+
+---
+
 ### [2722710] — 2026-05-09
 
 **feat(skills): add saga-orchestration and java-microservices to scaffold**
